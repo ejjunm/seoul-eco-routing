@@ -26,9 +26,16 @@ env/
 traffic_data/api_key.txt
 
 # Raw, intermediate, and processed data files are large and reproducible/local.
-data/raw/
-data/interim/
-data/processed/
+# Keep only .gitkeep files so the expected data directory structure is visible on GitHub.
+data/raw/**
+!data/raw/**/
+!data/raw/**/.gitkeep
+data/interim/**
+!data/interim/**/
+!data/interim/**/.gitkeep
+data/processed/**
+!data/processed/**/
+!data/processed/**/.gitkeep
 
 # Legacy data locations.
 traffic_data/raw/

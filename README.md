@@ -37,7 +37,7 @@
 └── README.md
 ```
 
-`data/raw/`, `data/interim/`, `data/processed/`는 대용량 원본/중간/가공 데이터이므로 Git에 올리지 않습니다.
+`data/raw/`, `data/interim/`, `data/processed/`의 실제 데이터 파일은 대용량 원본/중간/가공 데이터이므로 Git에 올리지 않습니다. 대신 각 폴더에는 `.gitkeep`을 두어 필요한 폴더 구조만 GitHub에 표시합니다.
 
 ## Main Data
 
