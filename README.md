@@ -18,7 +18,10 @@
 │   ├── create_matched_link_map.py
 │   ├── add_dem_features.py
 │   ├── fetch_kma_radar.py
-│   └── add_radar_precip_features.py
+│   ├── add_radar_precip_features.py
+│   ├── analyze_speed_feature_effects.py
+│   ├── plot_eda_tables.py
+│   └── plot_eda_charts.py
 ├── data/
 │   ├── raw/
 │   │   ├── road/       # MOCT_LINK.*, MOCT_NODE.*, MULTILINK.dbf, TURNINFO.dbf
@@ -28,6 +31,8 @@
 │   ├── interim/        # seoul_link.*
 │   └── processed/      # generated CSV/GeoJSON/PNG/NPZ outputs
 ├── docs/
+│   ├── figures/
+│   │   └── eda/       # GitHub에서 바로 볼 수 있는 EDA 그래프
 │   └── 작업정리.md
 └── README.md
 ```
@@ -59,6 +64,9 @@
 | `add_dem_features.py` | DEM에서 링크별 고도/경사도 피처 생성 |
 | `fetch_kma_radar.py` | KMA HSR 격자와 1시간 누적 레이더 강수량 다운로드 |
 | `add_radar_precip_features.py` | 레이더 강수량을 링크·시간 기준으로 결합 |
+| `analyze_speed_feature_effects.py` | 강수량, 경사도, 도로등급, 첨두시간대별 평균속도 EDA 테이블 생성 |
+| `plot_eda_tables.py` | EDA 요약 CSV를 표 이미지로 변환 |
+| `plot_eda_charts.py` | EDA 요약 CSV를 보고서용 그래프 이미지로 변환 |
 
 ## Raw Schema
 
@@ -137,6 +145,10 @@ KMA ASCII 포맷에서 `-30000`은 레이더 관측영역 밖, `-25000`은 관�
 | `data/processed/matched_link_ids.csv` | T-data와 매칭된 링크 목록 |
 | `data/processed/matched_links.geojson` | 매칭 링크 GeoJSON |
 | `data/processed/matched_links_map.png` | 매칭 링크 분포 지도 |
+| `data/processed/eda/*.csv` | 강수/경사/도로등급/첨두시간대별 속도 EDA 요약 |
+| `data/processed/eda/charts/*.png` | EDA 결과 그래프 이미지 |
+| `data/processed/eda/tables/*.png` | EDA 결과 표 이미지 |
+| `docs/figures/eda/*.png` | GitHub/보고서용 EDA 그래프 이미지 |
 
 ## Current Results
 
@@ -187,6 +199,45 @@ precip_mm > 0 행 수: 50,972
 precip_mm > 0 시각 수: 53
 ```
 
+### Speed Feature EDA
+
+최종 결합 테이블(`seoul_link_speed_dem_weather_merged.csv`)을 기준으로 강수량, 경사도, 도로등급, 첨두시간대에 따른 평균속도 차이를 1차 탐색했습니다.
+
+주요 결과:
+
+```text
+무강수 평균속도: 25.44 km/h
+강수 평균속도: 24.70 km/h
+무강수 + 완만 구간 평균속도: 25.58 km/h
+강수 + 급경사 구간 평균속도: 23.65 km/h
+오전첨두 무강수 평균속도: 24.90 km/h
+오전첨두 강수 평균속도: 22.21 km/h
+```
+
+보고서용 그래프는 아래 위치에 생성됩니다.
+
+```text
+data/processed/eda/charts/
+docs/figures/eda/
+├── 01_rain_flag_speed.png
+├── 02_rain_intensity_speed.png
+├── 03_slope_bin_speed.png
+├── 04_rain_slope_combo_speed.png
+├── 05_peak_rain_speed.png
+├── 06_road_rank_rain_speed.png
+└── 07_feature_correlation_speed.png
+```
+
+대표 그래프:
+
+![강수와 급경사 조합별 평균속도](docs/figures/eda/04_rain_slope_combo_speed.png)
+
+![첨두시간대별 강수 시 평균속도 변화](docs/figures/eda/05_peak_rain_speed.png)
+
+![도로등급별 강수 시 평균속도 변화](docs/figures/eda/06_road_rank_rain_speed.png)
+
+이 결과는 인과관계 검증이 아니라 탐색적 분석입니다. 최종 해석에서는 시간대, 도로등급, 제한속도, 링크별 특성을 함께 통제해야 합니다.
+
 ## Workflow
 
 ```bat
@@ -202,6 +253,8 @@ python scripts\add_dem_features.py
 python scripts\fetch_kma_radar.py --grid
 python scripts\fetch_kma_radar.py --from-tdata-times
 python scripts\add_radar_precip_features.py
+python scripts\analyze_speed_feature_effects.py
+python scripts\plot_eda_charts.py
 ```
 
 가상환경을 활성화하지 않고 실행할 때:
