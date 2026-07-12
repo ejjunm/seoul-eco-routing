@@ -1,5 +1,15 @@
 .venv/
+.matplotlib/
+
+# Local secrets from the old API-based workflow.
 traffic_data/api_key.txt
+
+# Raw, intermediate, and processed data files are large and reproducible/local.
+data/raw/
+data/interim/
+data/processed/
+
+# Legacy data locations.
 traffic_data/raw/
 traffic_data/processed/
 traffic_data/*.dbf
