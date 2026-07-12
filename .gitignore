@@ -1,0 +1,9 @@
+.venv/
+traffic_data/api_key.txt
+traffic_data/raw/
+traffic_data/processed/
+traffic_data/*.dbf
+traffic_data/*.shp
+traffic_data/*.shx
+traffic_data/*.cpg
+traffic_data/*.prj
