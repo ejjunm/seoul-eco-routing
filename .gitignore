@@ -1,7 +1,28 @@
-.venv/
-.matplotlib/
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Local secrets from the old API-based workflow.
+# Virtual environments and local config
+.venv/
+venv/
+env/
+.env
+.envrc
+
+# Local tool caches
+.matplotlib/
+.ipynb_checkpoints/
+
+# Local secrets
 traffic_data/api_key.txt
 
 # Raw, intermediate, and processed data files are large and reproducible/local.
@@ -17,3 +38,6 @@ traffic_data/*.shp
 traffic_data/*.shx
 traffic_data/*.cpg
 traffic_data/*.prj
+
+# Editor temporary files
+tempCodeRunnerFile.py
