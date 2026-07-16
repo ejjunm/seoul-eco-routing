@@ -30,6 +30,11 @@ traffic_data/api_key.txt
 data/raw/**
 !data/raw/**/
 !data/raw/**/.gitkeep
+
+# Exception: Seoul admin boundary is small, static reference data (not large/licensed
+# raw data), so it's committed for reproducibility. Source has no explicit license;
+# repo is currently private. Revisit before making the repo public.
+!data/raw/boundary/seoul_admin_boundary.geojson
 data/interim/**
 !data/interim/**/
 !data/interim/**/.gitkeep
