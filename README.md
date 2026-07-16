@@ -8,36 +8,34 @@
 
 ```text
 .
-├── scripts/
-│   ├── inspect_network_schema.py
-│   ├── extract_seoul_links.py
-│   ├── summarize_seoul_links.py
-│   ├── merge_tdata_link_speed.py
-│   ├── analyze_matched_links.py
-│   ├── plot_matched_links_map.py
-│   ├── create_matched_link_map.py
-│   ├── add_dem_features.py
-│   ├── fetch_kma_radar.py
-│   ├── add_radar_precip_features.py
-│   ├── analyze_speed_feature_effects.py
-│   ├── plot_eda_tables.py
-│   └── plot_eda_charts.py
+├── src/
+│   ├── 01_inspect_network_schema.py
+│   ├── 02_extract_seoul_links.py
+│   ├── 03_summarize_seoul_links.py
+│   ├── 04_merge_tdata_link_speed.py
+│   ├── 05_analyze_matched_links.py
+│   ├── 06_plot_matched_links_map.py
+│   ├── 07_add_dem_features.py
+│   ├── 08_fetch_kma_radar.py
+│   └── 09_add_radar_precip_features.py
+├── notebooks/
+│   └── 10_eda_report.ipynb
 ├── data/
 │   ├── raw/
 │   │   ├── road/       # MOCT_LINK.*, MOCT_NODE.*, MULTILINK.dbf, TURNINFO.dbf
+│   │   ├── boundary/   # seoul_admin_boundary.geojson (서울 25개 자치구 경계)
 │   │   ├── traffic/    # 1시간 소통정보 (구간별).csv
 │   │   ├── dem/        # 37608.img, 37612.img, 37705.img, 37709.img
 │   │   └── weather/    # KMA key, HSR grid, radar raw files
 │   ├── interim/        # seoul_link.*
 │   └── processed/      # generated CSV/GeoJSON/PNG/NPZ outputs
 ├── docs/
-│   ├── figures/
-│   │   └── eda/       # GitHub에서 바로 볼 수 있는 EDA 그래프
-│   └── 작업정리.md
+│   └── figures/
+│       └── eda/       # 노트북이 생성하는 보고서용 EDA 그래프
 └── README.md
 ```
 
-`data/raw/`, `data/interim/`, `data/processed/`의 실제 데이터 파일은 대용량 원본/중간/가공 데이터이므로 Git에 올리지 않습니다. 대신 각 폴더에는 `.gitkeep`을 두어 필요한 폴더 구조만 GitHub에 표시합니다.
+`data/raw/`, `data/interim/`, `data/processed/`의 실제 데이터 파일은 대용량 원본/중간/가공 데이터이므로 Git에 올리지 않습니다. 대신 각 폴더에는 `.gitkeep`을 두어 필요한 폴더 구조만 GitHub에 표시합니다. 예외적으로 `data/raw/boundary/seoul_admin_boundary.geojson`은 크기가 작은 정적 참조 데이터라 커밋합니다(자세한 내용은 Notes 참고).
 
 ## Main Data
 
@@ -45,6 +43,7 @@
 | --- | --- | --- |
 | ITS 표준 링크 | `data/raw/road/MOCT_LINK.*` | 도로 링크 geometry와 속성 |
 | ITS 표준 노드 | `data/raw/road/MOCT_NODE.*` | 도로망 노드 |
+| 서울 행정경계 | `data/raw/boundary/seoul_admin_boundary.geojson` | 서울 링크 추출 기준 (25개 자치구 경계, EPSG:4326) |
 | T-data 1시간 소통정보 | `data/raw/traffic/1시간 소통정보 (구간별).csv` | 링크별 시간대 평균속도 |
 | DEM | `data/raw/dem/*.img` | 링크별 고도/경사도 |
 | KMA HSR 격자 | `data/raw/weather/grid/hsr_lon.txt`, `hsr_lat.txt` | 레이더 격자 위치 |
@@ -52,21 +51,41 @@
 
 ## Scripts
 
+`src/`의 파일명 앞 번호는 실행 순서(파이프라인 순서)를 나타냅니다.
+
 | Script | Description |
 | --- | --- |
-| `inspect_network_schema.py` | `MOCT_LINK.shp`의 크기, 컬럼, 좌표계 확인 |
-| `extract_seoul_links.py` | 서울 bbox 기준 링크를 추출해 `seoul_link.*`, `seoul_link_attr.csv` 생성 |
-| `summarize_seoul_links.py` | 서울 링크 속성 기초 통계 출력 |
-| `merge_tdata_link_speed.py` | `LINK_ID`와 `링크ID` 기준으로 T-data 속도 결합 |
-| `analyze_matched_links.py` | T-data 매칭률, 도로등급별 커버리지, 연결 컴포넌트 분석 |
-| `plot_matched_links_map.py` | 매칭 링크 지도 이미지와 GeoJSON 생성 |
-| `create_matched_link_map.py` | 외부 GIS 라이브러리 없이 SVG 지도 생성 |
-| `add_dem_features.py` | DEM에서 링크별 고도/경사도 피처 생성 |
-| `fetch_kma_radar.py` | KMA HSR 격자와 1시간 누적 레이더 강수량 다운로드 |
-| `add_radar_precip_features.py` | 레이더 강수량을 링크·시간 기준으로 결합 |
-| `analyze_speed_feature_effects.py` | 강수량, 경사도, 도로등급, 첨두시간대별 평균속도 EDA 테이블 생성 |
-| `plot_eda_tables.py` | EDA 요약 CSV를 표 이미지로 변환 |
-| `plot_eda_charts.py` | EDA 요약 CSV를 보고서용 그래프 이미지로 변환 |
+| `01_inspect_network_schema.py` | `MOCT_LINK.shp`의 크기, 컬럼, 좌표계 확인 |
+| `02_extract_seoul_links.py` | 서울 행정경계(25개 자치구) 기준 링크를 추출해 `seoul_link.*`, `seoul_link_attr.csv` 생성 |
+| `03_summarize_seoul_links.py` | 서울 링크 속성 기초 통계 출력 |
+| `04_merge_tdata_link_speed.py` | `LINK_ID`와 `링크ID` 기준으로 T-data 속도 결합 |
+| `05_analyze_matched_links.py` | T-data 매칭률, 도로등급별 커버리지, 연결 컴포넌트 분석 |
+| `06_plot_matched_links_map.py` | 매칭 링크 지도 이미지와 GeoJSON 생성 |
+| `07_add_dem_features.py` | DEM에서 링크별 고도/경사도 피처 생성 |
+| `08_fetch_kma_radar.py` | KMA HSR 격자와 1시간 누적 레이더 강수량 다운로드 |
+| `09_add_radar_precip_features.py` | 레이더 강수량을 링크·시간 기준으로 결합 |
+
+이전에 있던 `create_matched_link_map.py`(외부 GIS 라이브러리 없이 SVG 지도를 그리는 대체 스크립트)는 `06_plot_matched_links_map.py`가 이미 GeoJSON과 지도 이미지를 만들고 있어 제거했습니다.
+
+## Notebooks
+
+| Notebook | Description |
+| --- | --- |
+| `10_eda_report.ipynb` | 최종 결합 테이블을 입력으로 강수량·경사도·도로등급·첨두시간대별 평균속도 EDA 테이블과 차트를 생성하는 리포트 |
+
+이전에는 EDA 테이블 생성(`analyze_speed_feature_effects.py`), 표 이미지 렌더링(`plot_eda_tables.py`), 차트 이미지 렌더링(`plot_eda_charts.py`)이 스크립트 3개 + `data/processed/eda/` 아래 CSV 9개·차트 PNG 7개·표 PNG 7개로 흩어져 있었습니다. 이 셋은 결국 하나의 분석 리포트라서 노트북 하나로 통합했습니다. 집계 테이블은 노트북 셀 출력으로 바로 보이므로 CSV/표 이미지를 따로 저장하지 않고, 보고서용 차트 7장만 `docs/figures/eda/`에 저장합니다.
+
+노트북을 다시 실행하려면:
+
+```bat
+jupyter lab notebooks\10_eda_report.ipynb
+```
+
+또는 커널 없이 일괄 실행 후 저장하려면:
+
+```bat
+python -m nbconvert --to notebook --execute --inplace notebooks\10_eda_report.ipynb
+```
 
 ## Raw Schema
 
@@ -86,6 +105,17 @@
 LINK_ID, F_NODE, T_NODE, LANES, ROAD_RANK, ROAD_TYPE,
 ROAD_NAME, MAX_SPD, LENGTH, geometry
 ```
+
+### 서울 행정경계
+
+| Item | Value |
+| --- | --- |
+| Path | `data/raw/boundary/seoul_admin_boundary.geojson` |
+| Source | [southkorea/seoul-maps](https://github.com/southkorea/seoul-maps) (`juso/2015/json/seoul_municipalities_geo.json`) |
+| Geometry | `Polygon` (자치구 25개) |
+| CRS | `EPSG:4326` |
+
+`02_extract_seoul_links.py`에서 25개 자치구 폴리곤을 하나로 합친 뒤 `MOCT_LINK`의 좌표계로 변환하고, `intersects`로 서울과 조금이라도 겹치는 링크를 추출합니다. `clip`을 쓰지 않는 이유는 경계선에 걸친 링크 geometry가 잘려 그래프 연결성이 오히려 나빠지기 때문입니다.
 
 ### T-data 1시간 소통정보
 
@@ -111,7 +141,7 @@ ROAD_NAME, MAX_SPD, LENGTH, geometry
 | dtype | `float32` |
 | nodata | `-9999` |
 
-도로 링크와 DEM의 좌표계가 다르므로 `add_dem_features.py`에서 링크를 `EPSG:5179`로 변환한 뒤 샘플링합니다.
+도로 링크와 DEM의 좌표계가 다르므로 `07_add_dem_features.py`에서 링크를 `EPSG:5179`로 변환한 뒤 샘플링합니다.
 
 ### KMA HSR Radar
 
@@ -131,7 +161,7 @@ KMA ASCII 포맷에서 `-30000`은 레이더 관측영역 밖, `-25000`은 관�
 
 | File | Description |
 | --- | --- |
-| `data/interim/seoul_link.*` | 서울 bbox 기준 링크 Shapefile |
+| `data/interim/seoul_link.*` | 서울 행정경계 기준 링크 Shapefile |
 | `data/processed/seoul_link_attr.csv` | 서울 링크 속성 테이블 |
 | `data/processed/seoul_link_speed_merged.csv` | T-data 속도 + 서울 링크 속성 |
 | `data/processed/seoul_link_dem_features.csv` | 링크별 DEM 고도/경사도 피처 |
@@ -145,28 +175,27 @@ KMA ASCII 포맷에서 `-30000`은 레이더 관측영역 밖, `-25000`은 관�
 | `data/processed/matched_link_ids.csv` | T-data와 매칭된 링크 목록 |
 | `data/processed/matched_links.geojson` | 매칭 링크 GeoJSON |
 | `data/processed/matched_links_map.png` | 매칭 링크 분포 지도 |
-| `data/processed/eda/*.csv` | 강수/경사/도로등급/첨두시간대별 속도 EDA 요약 |
-| `data/processed/eda/charts/*.png` | EDA 결과 그래프 이미지 |
-| `data/processed/eda/tables/*.png` | EDA 결과 표 이미지 |
-| `docs/figures/eda/*.png` | GitHub/보고서용 EDA 그래프 이미지 |
+| `docs/figures/eda/*.png` | `10_eda_report.ipynb`가 생성하는 GitHub/보고서용 EDA 그래프 이미지 |
 
 ## Current Results
+
+`02_extract_seoul_links.py`가 bbox 대신 서울 행정경계(25개 자치구)로 링크를 추출하도록 바뀌면서, 아래 수치는 이전 bbox 기준 결과(서울 링크 109,633개)보다 전반적으로 낮아졌습니다. bbox가 실제 서울보다 넓은 사각형이라 경기/인천 일부 링크를 서울로 잘못 세고 있었기 때문입니다.
 
 ### T-data Matching
 
 ```text
-서울 링크 수: 109,633
+서울 링크 수: 63,548
 T-data 행 수: 608,538
-결합된 T-data 행 수: 183,821
-결합된 고유 링크ID 수: 1,546
+결합된 T-data 행 수: 180,488
+결합된 고유 링크ID 수: 1,517
 ```
 
 T-data 매칭 링크만으로 만든 그래프의 연결성은 낮습니다.
 
 ```text
-연결 컴포넌트 수: 1,382
+연결 컴포넌트 수: 1,365
 최대 컴포넌트 링크 수: 17
-최대 컴포넌트 링크 비율: 1.1%
+최대 컴포넌트 링크 비율: 1.12%
 ```
 
 따라서 현재 데이터만으로는 서울 전체 OD 경로탐색보다, T-data 속도 이력이 확보된 주요 링크의 속도/에너지 비효율 구간 분석이 더 안전합니다.
@@ -174,7 +203,7 @@ T-data 매칭 링크만으로 만든 그래프의 연결성은 낮습니다.
 ### DEM
 
 ```text
-서울 링크 수: 109,633
+서울 링크 수: 63,548
 DEM 샘플 존재 링크 비율: 100.0%
 대부분 링크의 dem_sample_count: 5
 ```
@@ -185,8 +214,8 @@ DEM 샘플 존재 링크 비율: 100.0%
 T-data 대상 레이더 시각 수: 119
 다운로드 완료 레이더 시각 수: 119
 누락 레이더 시각 수: 0
-최종 결합 행 수: 183,821
-강수값 존재 행 수: 183,821
+최종 결합 행 수: 180,488
+강수값 존재 행 수: 180,488
 ```
 
 강수량 요약:
@@ -195,29 +224,28 @@ T-data 대상 레이더 시각 수: 119
 mean precip_mm: 5.90
 median precip_mm: 0.00
 max precip_mm: 47.57
-precip_mm > 0 행 수: 50,972
+precip_mm > 0 행 수: 50,077
 precip_mm > 0 시각 수: 53
 ```
 
 ### Speed Feature EDA
 
-최종 결합 테이블(`seoul_link_speed_dem_weather_merged.csv`)을 기준으로 강수량, 경사도, 도로등급, 첨두시간대에 따른 평균속도 차이를 1차 탐색했습니다.
+최종 결합 테이블(`seoul_link_speed_dem_weather_merged.csv`)을 입력으로 `10_eda_report.ipynb`에서 강수량, 경사도, 도로등급, 첨두시간대에 따른 평균속도 차이를 1차 탐색했습니다.
 
 주요 결과:
 
 ```text
-무강수 평균속도: 25.44 km/h
-강수 평균속도: 24.70 km/h
-무강수 + 완만 구간 평균속도: 25.58 km/h
+무강수 평균속도: 25.29 km/h
+강수 평균속도: 24.58 km/h
+무강수 + 완만 구간 평균속도: 25.41 km/h
 강수 + 급경사 구간 평균속도: 23.65 km/h
-오전첨두 무강수 평균속도: 24.90 km/h
-오전첨두 강수 평균속도: 22.21 km/h
+오전첨두 무강수 평균속도: 24.77 km/h
+오전첨두 강수 평균속도: 22.19 km/h
 ```
 
-보고서용 그래프는 아래 위치에 생성됩니다.
+보고서용 그래프는 노트북 실행 시 아래 위치에 생성됩니다.
 
 ```text
-data/processed/eda/charts/
 docs/figures/eda/
 ├── 01_rain_flag_speed.png
 ├── 02_rain_intensity_speed.png
@@ -243,36 +271,36 @@ docs/figures/eda/
 ```bat
 .venv\Scripts\activate.bat
 
-python scripts\inspect_network_schema.py
-python scripts\extract_seoul_links.py
-python scripts\summarize_seoul_links.py
-python scripts\merge_tdata_link_speed.py
-python scripts\analyze_matched_links.py
-python scripts\plot_matched_links_map.py
-python scripts\add_dem_features.py
-python scripts\fetch_kma_radar.py --grid
-python scripts\fetch_kma_radar.py --from-tdata-times
-python scripts\add_radar_precip_features.py
-python scripts\analyze_speed_feature_effects.py
-python scripts\plot_eda_charts.py
+python src\01_inspect_network_schema.py
+python src\02_extract_seoul_links.py
+python src\03_summarize_seoul_links.py
+python src\04_merge_tdata_link_speed.py
+python src\05_analyze_matched_links.py
+python src\06_plot_matched_links_map.py
+python src\07_add_dem_features.py
+python src\08_fetch_kma_radar.py --grid
+python src\08_fetch_kma_radar.py --from-tdata-times
+python src\09_add_radar_precip_features.py
+
+python -m nbconvert --to notebook --execute --inplace notebooks\10_eda_report.ipynb
 ```
 
 가상환경을 활성화하지 않고 실행할 때:
 
 ```bat
-.venv\Scripts\python.exe scripts\add_radar_precip_features.py
+.venv\Scripts\python.exe src\09_add_radar_precip_features.py
 ```
 
 KMA 레이더 한 시각만 받을 때:
 
 ```bat
-python scripts\fetch_kma_radar.py --tm 202607070300
+python src\08_fetch_kma_radar.py --tm 202607070300
 ```
 
 ## Notes
 
-- `extract_seoul_links.py`는 정확한 서울 행정경계가 아니라 bbox 기준으로 링크를 추출합니다.
-- 정확한 서울 행정구역 내부 링크만 필요하면 서울 행정경계 Shapefile 또는 GeoJSON을 사용해 `clip` 또는 `sjoin` 방식으로 다시 추출해야 합니다.
+- `02_extract_seoul_links.py`는 `data/raw/boundary/seoul_admin_boundary.geojson`(서울 25개 자치구 경계, EPSG:4326)을 하나로 합쳐 `intersects`로 링크를 추출합니다. `clip`을 쓰지 않는 이유는 경계선에 걸친 링크의 geometry가 잘려 그래프 연결성이 나빠질 수 있기 때문입니다.
+- 경계 GeoJSON은 [southkorea/seoul-maps](https://github.com/southkorea/seoul-maps) 저장소의 2015년 자치구 경계를 받아 사용합니다. 다른 raw 데이터와 달리 크기가 작고(1.6MB) 정적인 참조 데이터라 `data/raw/boundary/seoul_admin_boundary.geojson`은 예외적으로 Git에 커밋합니다. 다만 출처 저장소에 명시적 라이선스가 없어(`LICENSE` 파일 없음), 이 저장소가 public으로 전환되기 전에 공공누리(KOGL) 라이선스가 명시된 공식 출처(SGIS, VWorld, 국가공간정보포털 등)로 교체하는 것을 권장합니다.
 - T-data API 수집 코드는 사용하지 않습니다.
 - `data/raw/` 아래 원본 데이터는 직접 받은 파일이므로 코드에서 수정하지 않는 것을 원칙으로 합니다.
 - DEM은 90m 해상도이므로 짧은 링크에서는 경사도 값이 튈 수 있습니다. 모델링 전 `LENGTH` 기준 필터링이나 경사도 이상치 처리가 필요합니다.
