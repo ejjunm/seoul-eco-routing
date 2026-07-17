@@ -16,7 +16,7 @@ RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 WEATHER_RAW_DIR = RAW_DATA_DIR / "weather"
 TRAFFIC_RAW_DIR = RAW_DATA_DIR / "traffic"
 KMA_API_KEY_PATH = WEATHER_RAW_DIR / "kma_api_key.txt"
-TDATA_SPEED_PATH = TRAFFIC_RAW_DIR / "1시간 소통정보 (구간별).csv"
+TDATA_SPEED_GLOB = "1시간 소통정보 (구간별)*.csv"
 
 GRID_DIR = WEATHER_RAW_DIR / "grid"
 RADAR_DIR = WEATHER_RAW_DIR / "radar"
@@ -141,10 +141,16 @@ def tdata_row_to_tm(date_value, time_code_value) -> str:
 
 
 def iter_tdata_tms():
-    times = pd.read_csv(
-        TDATA_SPEED_PATH,
-        usecols=["기준일", "시간코드"],
-        encoding="utf-8-sig",
+    paths = sorted(TRAFFIC_RAW_DIR.glob(TDATA_SPEED_GLOB))
+    if not paths:
+        raise SystemExit(f"T-data 파일이 없습니다: {TRAFFIC_RAW_DIR / TDATA_SPEED_GLOB}")
+
+    times = pd.concat(
+        [
+            pd.read_csv(path, usecols=["기준일", "시간코드"], encoding="utf-8-sig")
+            for path in paths
+        ],
+        ignore_index=True,
     ).drop_duplicates()
     tms = {
         tdata_row_to_tm(date_value, time_code_value)

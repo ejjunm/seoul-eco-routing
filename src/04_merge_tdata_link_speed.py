@@ -9,7 +9,7 @@ TRAFFIC_RAW_DIR = RAW_DATA_DIR / "traffic"
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 
 SEOUL_LINK_ATTR_PATH = PROCESSED_DATA_DIR / "seoul_link_attr.csv"
-TDATA_SPEED_PATH = TRAFFIC_RAW_DIR / "1시간 소통정보 (구간별).csv"
+TDATA_SPEED_GLOB = "1시간 소통정보 (구간별)*.csv"
 OUT_CSV = PROCESSED_DATA_DIR / "seoul_link_speed_merged.csv"
 
 LINK_KEY = "LINK_ID"
@@ -36,20 +36,35 @@ def read_seoul_links() -> pd.DataFrame:
 
 
 def read_tdata_speed() -> pd.DataFrame:
-    return pd.read_csv(
-        TDATA_SPEED_PATH,
-        dtype={
-            "링크ID": str,
-            "기준일": str,
-            "시간코드": str,
-            "도로방향구분코드": str,
-            "요일코드(1~7:일~토)": str,
-            "요일그룹코드(01:주중/02:주말)": str,
-            "도로코드": str,
-            "도로구분코드": str,
-        },
-        encoding="utf-8-sig",
-    )
+    """
+    data/raw/traffic/ 아래 "1시간 소통정보 (구간별)*.csv"에 맞는 파일을
+    전부 읽어서 합친다. T-data는 기간별로 별도 파일(예: "... (1).csv")로
+    추가되는 경우가 많아, 파일명 하나를 고정하지 않고 패턴으로 찾는다.
+    """
+    paths = sorted(TRAFFIC_RAW_DIR.glob(TDATA_SPEED_GLOB))
+    if not paths:
+        raise SystemExit(f"T-data 파일이 없습니다: {TRAFFIC_RAW_DIR / TDATA_SPEED_GLOB}")
+
+    dtype = {
+        "링크ID": str,
+        "기준일": str,
+        "시간코드": str,
+        "도로방향구분코드": str,
+        "요일코드(1~7:일~토)": str,
+        "요일그룹코드(01:주중/02:주말)": str,
+        "도로코드": str,
+        "도로구분코드": str,
+    }
+    frames = [pd.read_csv(path, dtype=dtype, encoding="utf-8-sig") for path in paths]
+    combined = pd.concat(frames, ignore_index=True)
+
+    dup_key = ["기준일", "시간코드", "링크ID", "도로방향구분코드"]
+    dup_count = combined.duplicated(subset=dup_key).sum()
+    if dup_count:
+        print(f"경고: T-data 파일 {len(paths)}개를 합쳤는데 중복 행이 {dup_count}건 있습니다 (겹치는 기간 확인 필요).")
+
+    print(f"T-data 파일 {len(paths)}개 로드:", ", ".join(path.name for path in paths))
+    return combined
 
 
 def validate_columns(df: pd.DataFrame, required_columns: list[str], file_label: str) -> None:
@@ -155,7 +170,7 @@ def main() -> None:
     tdata_speed = read_tdata_speed()
 
     validate_columns(seoul_links, [LINK_KEY, ROAD_NAME_KEY], str(SEOUL_LINK_ATTR_PATH))
-    validate_columns(tdata_speed, [TDATA_LINK_KEY, TDATA_ROAD_NAME_KEY], str(TDATA_SPEED_PATH))
+    validate_columns(tdata_speed, [TDATA_LINK_KEY, TDATA_ROAD_NAME_KEY], f"T-data ({TDATA_SPEED_GLOB})")
 
     exact_merged, _is_exact = match_exact(seoul_links, tdata_speed)
     exact_seoul_ids = set(exact_merged[LINK_KEY])
