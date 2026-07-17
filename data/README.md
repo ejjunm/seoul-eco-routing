@@ -164,7 +164,9 @@ KMA 레이더 원본은 한 시각당 약 48MB이며, 현재 T-data 대상 119�
 | `data/processed/matched_link_ids.csv` | T-data와 매칭된 링크 목록 |
 | `data/processed/matched_links.geojson` | 매칭 링크 GeoJSON |
 | `data/processed/matched_links_map.png` | 매칭 링크 분포 지도 |
+| `data/processed/matched_links_map_highlight.png` | 매칭(빨강)/미매칭(파랑) 링크를 함께 표시해 미매칭 링크가 어디에 몰려있는지 보여주는 지도 |
 | `docs/figures/eda/*.png` | `10_eda_report.ipynb`가 생성하는 GitHub/보고서용 EDA 그래프 이미지 |
+| `docs/figures/model/*.png` | `11_speed_model_baseline.ipynb`가 생성하는 속도 예측 모델 결과 그래프 이미지 |
 
 `data/raw/`, `data/interim/`, `data/processed/`의 실제 데이터 파일은 대용량 원본/중간/가공 데이터라 Git에 올리지 않고 `.gitkeep`만 둡니다. 예외적으로 `data/raw/boundary/seoul_admin_boundary.geojson`은 커밋합니다(위 라이선스 주의 참고).
 
