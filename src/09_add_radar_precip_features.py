@@ -104,9 +104,6 @@ def load_or_build_seoul_grid() -> dict[str, np.ndarray]:
 
 
 def build_link_grid_mapping(grid: dict[str, np.ndarray]) -> pd.DataFrame:
-    if LINK_GRID_MAP_PATH.exists():
-        return pd.read_csv(LINK_GRID_MAP_PATH, dtype={"LINK_ID": str})
-
     speed_links = pd.read_csv(
         SPEED_DEM_PATH,
         usecols=["LINK_ID"],
@@ -114,6 +111,12 @@ def build_link_grid_mapping(grid: dict[str, np.ndarray]) -> pd.DataFrame:
         encoding="utf-8-sig",
     )["LINK_ID"].drop_duplicates()
     target_link_ids = set(speed_links)
+
+    if LINK_GRID_MAP_PATH.exists():
+        cached = pd.read_csv(LINK_GRID_MAP_PATH, dtype={"LINK_ID": str})
+        if set(cached["LINK_ID"]) == target_link_ids:
+            return cached
+        print("링크 구성이 바뀌어 링크-레이더 격자 매핑 캐시를 다시 생성합니다:", LINK_GRID_MAP_PATH)
 
     links = gpd.read_file(SEOUL_LINK_SHP)
     links["LINK_ID"] = links["LINK_ID"].astype(str)
