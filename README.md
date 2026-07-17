@@ -21,7 +21,8 @@
 │   ├── 08_fetch_kma_radar.py
 │   └── 09_add_radar_precip_features.py
 ├── notebooks/
-│   └── 10_eda_report.ipynb
+│   ├── 10_eda_report.ipynb
+│   └── 11_speed_model_baseline.ipynb
 ├── data/
 │   ├── README.md       # 데이터 스키마/매칭 방식/결과 상세 문서
 │   ├── raw/
@@ -34,7 +35,8 @@
 │   └── processed/      # generated CSV/GeoJSON/PNG/NPZ outputs
 ├── docs/
 │   └── figures/
-│       └── eda/       # 노트북이 생성하는 보고서용 EDA 그래프
+│       ├── eda/       # 10번 노트북이 생성하는 보고서용 EDA 그래프
+│       └── model/     # 11번 노트북이 생성하는 속도 예측 모델 그래프
 └── README.md
 ```
 
@@ -77,6 +79,7 @@
 | Notebook | Description |
 | --- | --- |
 | `10_eda_report.ipynb` | 최종 결합 테이블을 입력으로 강수량·경사도·도로등급·첨두시간대별 평균속도 EDA 테이블과 차트를 생성하는 리포트. 집계 테이블은 셀 출력으로 바로 보여주고, 보고서용 차트 7장만 `docs/figures/eda/`에 저장 |
+| `11_speed_model_baseline.ipynb` | 최종 결합 테이블의 원본 컬럼(파생 피처 제외)만으로 링크 평균속도를 예측하는 LightGBM 베이스라인. T-data prefix8 매칭의 1:N broadcast 구조로 인한 그룹(형제 링크) 유출을 막기 위해 `LINK_ID` 앞 8자리 기준 그룹 분할을 쓰고, 랜덤 분할과 비교해 유출 효과를 정량적으로 보여줌. 결과 차트 4장은 `docs/figures/model/`에 저장 |
 
 노트북을 다시 실행하려면:
 
@@ -88,6 +91,7 @@ jupyter lab notebooks\10_eda_report.ipynb
 
 ```bat
 python -m nbconvert --to notebook --execute --inplace notebooks\10_eda_report.ipynb
+python -m nbconvert --to notebook --execute --inplace notebooks\11_speed_model_baseline.ipynb
 ```
 
 ## Current Results (요약)
@@ -119,6 +123,7 @@ python src\08_fetch_kma_radar.py --from-tdata-times
 python src\09_add_radar_precip_features.py
 
 python -m nbconvert --to notebook --execute --inplace notebooks\10_eda_report.ipynb
+python -m nbconvert --to notebook --execute --inplace notebooks\11_speed_model_baseline.ipynb
 ```
 
 가상환경을 활성화하지 않고 실행할 때:
