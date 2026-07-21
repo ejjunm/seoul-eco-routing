@@ -10,6 +10,7 @@ PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 
 SEOUL_LINK_ATTR_PATH = PROCESSED_DATA_DIR / "seoul_link_attr.csv"
 TDATA_SPEED_GLOB = "1시간 소통정보 (구간별)*.csv"
+OFFICIAL_MAPPING_PATH = TRAFFIC_RAW_DIR / "서울특별시 교통소통 표준링크 매핑정보_20250306.xlsx"
 OUT_CSV = PROCESSED_DATA_DIR / "seoul_link_speed_merged.csv"
 
 LINK_KEY = "LINK_ID"
@@ -19,8 +20,8 @@ TDATA_ROAD_NAME_KEY = "도로명"
 SPEED_KEY = "평균속도"
 DATE_KEY = "기준일"
 TIME_CODE_KEY = "시간코드"
-PREFIX_LEN = 8
-PREFIX_COL = "LINK_PREFIX8"
+OFFICIAL_SERVICE_LINK_KEY = "서비스링크"
+OFFICIAL_TARGET_LINK_KEY = "표준링크아이디"
 AGG_KEYS = [LINK_KEY, DATE_KEY, TIME_CODE_KEY]
 
 
@@ -73,67 +74,50 @@ def validate_columns(df: pd.DataFrame, required_columns: list[str], file_label: 
         raise SystemExit(f"{file_label}에 필요한 컬럼이 없습니다: {missing_columns}")
 
 
-def match_exact(seoul_links: pd.DataFrame, tdata_speed: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-    """LINK_ID 10자리가 정확히 일치하는 T-data 행을 1:1로 결합한다."""
-    seoul_link_ids = set(seoul_links[LINK_KEY].dropna())
-    is_exact = tdata_speed[TDATA_LINK_KEY].isin(seoul_link_ids)
+def read_official_mapping() -> pd.DataFrame:
+    mapping = pd.read_excel(
+        OFFICIAL_MAPPING_PATH,
+        dtype={OFFICIAL_SERVICE_LINK_KEY: str, OFFICIAL_TARGET_LINK_KEY: str},
+    )
+    return mapping[[OFFICIAL_SERVICE_LINK_KEY, OFFICIAL_TARGET_LINK_KEY]].dropna()
 
-    merged = tdata_speed[is_exact].merge(
-        seoul_links,
+
+def match_official(seoul_links: pd.DataFrame, tdata_speed: pd.DataFrame) -> pd.DataFrame:
+    """
+    서울시가 직접 발행한 'TOPIS-표준노드링크 매핑정보'(서비스링크 ->
+    표준링크아이디, 1:N)로 T-data를 결합한다. TOPIS 내부 링크체계와
+    표준노드링크 LINK_ID를 공식적으로 연결해주는 정답 테이블이라
+    prefix8 같은 추정 로직 없이 그대로 신뢰할 수 있다.
+
+    하나의 서비스링크가 여러 표준링크아이디(물리적 세부 구간)에 대응하는
+    경우, 같은 속도값을 해당 구간 전체에 broadcast한다(표준링크순서
+    컬럼이 이 1:N 관계가 실제 도로 구간의 순차 분할임을 보여준다).
+    표준링크아이디는 매핑 테이블 내에서 서로 다른 서비스링크에 중복
+    등장하지 않으므로(검증 완료), 이 broadcast로 같은 타겟 링크에 서로
+    다른 서비스링크의 값이 겹쳐 붙는 경우는 없다.
+
+    같은 (LINK_ID, 기준일, 시간코드)에 그래도 여러 소스 행이 모이면
+    (T-data 자체의 상행/하행 분리 등) `aggregate_broadcast_duplicates`가
+    평균으로 합친다.
+    """
+    mapping = read_official_mapping()
+    seoul_ids = set(seoul_links[LINK_KEY].dropna())
+    mapping = mapping[mapping[OFFICIAL_TARGET_LINK_KEY].isin(seoul_ids)]
+
+    merged = tdata_speed.merge(
+        mapping,
         left_on=TDATA_LINK_KEY,
+        right_on=OFFICIAL_SERVICE_LINK_KEY,
+        how="inner",
+    )
+    merged = merged.merge(
+        seoul_links,
+        left_on=OFFICIAL_TARGET_LINK_KEY,
         right_on=LINK_KEY,
         how="inner",
     )
-    merged["match_method"] = "exact"
-    merged["broadcast_source_link_ids"] = merged[TDATA_LINK_KEY]
-    merged["broadcast_source_count"] = 1
-    merged["broadcast_speed_std"] = 0.0
-    merged = merged.drop(columns=[TDATA_LINK_KEY])
-    return merged, is_exact
-
-
-def match_prefix8(
-    seoul_links: pd.DataFrame,
-    tdata_speed: pd.DataFrame,
-    exact_seoul_ids: set,
-) -> pd.DataFrame:
-    """
-    exact 매칭에 실패한 T-data 행을, LINK_ID 앞 8자리(표준노드링크 개정
-    과정에서 붙는 세부 suffix를 뗀 논리적 도로 구간 단위)로 재매칭한다.
-
-    표준노드링크가 갱신되며 T-data가 참조하던 링크 하나가 여러 개의 세부
-    링크로 쪼개진 경우가 많아, exact match만으로는 실제 존재하는 도로
-    구간의 상당수를 놓친다(검증 결과 T-data 기준 매칭률 29.6% -> 90.4%).
-
-    - 이미 exact로 매칭된 Seoul 링크는 broadcast 대상(target)에서 제외한다
-      (같은 링크에 서로 다른 두 값이 겹쳐 붙는 것을 방지).
-    - 반대로 T-data 행 자체는 exact 매칭 여부와 무관하게 전부 broadcast
-      소스로 사용한다 - 어떤 T-data 행이 형제 Seoul 링크 중 하나와
-      exact로 매칭됐다고 해서, 그 행이 나머지 형제 링크에 broadcast하는
-      것까지 막을 이유는 없다(그렇게 막으면 그 prefix 그룹의 유일한
-      T-data 소스가 사라져 나머지 형제 링크가 전부 미매칭된다).
-    - ROAD_NAME이 T-data 도로명과 정확히 일치하는 조합만 채택한다(서로
-      다른 도로가 우연히 같은 8자리를 공유하는 오매칭을 제거, 검증 결과
-      96.96%가 이 조건을 만족).
-    - 하나의 T-data 행이 여러 Seoul 링크에 매칭되면(1:N, 평균 3.57개),
-      같은 속도값을 해당 링크 전체에 broadcast한다.
-    - 반대로 하나의 Seoul 링크가 같은 prefix를 공유하는 여러 T-data 행과
-      동시에 매칭될 수도 있다(예: 하나의 링크가 원래 상행/하행 두 T-data
-      구간으로 쪼개져 있던 경우). 이 경우 같은 (LINK_ID, 기준일, 시간코드)
-      조합에 서로 다른 속도값이 여러 개 붙는 문제가 생기므로,
-      `aggregate_broadcast_duplicates`에서 평균으로 합치고 소스 개수/표준
-      편차를 별도 컬럼에 남긴다.
-    """
-    fallback_tdata = tdata_speed.copy()
-    fallback_tdata[PREFIX_COL] = fallback_tdata[TDATA_LINK_KEY].str[:PREFIX_LEN]
-
-    fallback_seoul = seoul_links[~seoul_links[LINK_KEY].isin(exact_seoul_ids)].copy()
-    fallback_seoul[PREFIX_COL] = fallback_seoul[LINK_KEY].str[:PREFIX_LEN]
-
-    merged = fallback_tdata.merge(fallback_seoul, on=PREFIX_COL, how="inner")
-    merged = merged[merged[TDATA_ROAD_NAME_KEY] == merged[ROAD_NAME_KEY]].copy()
-    merged["match_method"] = "prefix8"
-    merged = merged.drop(columns=[PREFIX_COL])
+    merged["match_method"] = "official_mapping"
+    merged = merged.drop(columns=[OFFICIAL_SERVICE_LINK_KEY, OFFICIAL_TARGET_LINK_KEY])
     return aggregate_broadcast_duplicates(merged)
 
 
@@ -172,12 +156,7 @@ def main() -> None:
     validate_columns(seoul_links, [LINK_KEY, ROAD_NAME_KEY], str(SEOUL_LINK_ATTR_PATH))
     validate_columns(tdata_speed, [TDATA_LINK_KEY, TDATA_ROAD_NAME_KEY], f"T-data ({TDATA_SPEED_GLOB})")
 
-    exact_merged, _is_exact = match_exact(seoul_links, tdata_speed)
-    exact_seoul_ids = set(exact_merged[LINK_KEY])
-
-    prefix8_merged = match_prefix8(seoul_links, tdata_speed, exact_seoul_ids)
-
-    merged = pd.concat([exact_merged, prefix8_merged], ignore_index=True, sort=False)
+    merged = match_official(seoul_links, tdata_speed)
 
     PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
     merged.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
@@ -187,11 +166,12 @@ def main() -> None:
     print("T-data 소통정보 행 수:", len(tdata_speed))
     print("T-data 고유 링크ID 수:", tdata_speed[TDATA_LINK_KEY].nunique())
     print()
-    print("exact 매칭 행 수:", len(exact_merged), "| 고유 Seoul 링크 수:", exact_merged[LINK_KEY].nunique())
-    print("prefix8 매칭 행 수(중복 병합 후):", len(prefix8_merged), "| 고유 Seoul 링크 수:", prefix8_merged[LINK_KEY].nunique())
-    multi_source = prefix8_merged[prefix8_merged["broadcast_source_count"] > 1]
+    matched_link_count = merged[LINK_KEY].nunique()
+    print("공식 매핑 매칭 링크 수:", matched_link_count,
+          f"({matched_link_count / seoul_links[LINK_KEY].nunique() * 100:.2f}%)")
+    multi_source = merged[merged["broadcast_source_count"] > 1]
     print("여러 T-data 소스가 겹쳐 평균으로 병합된 행 수:", len(multi_source),
-          f"({len(multi_source) / len(prefix8_merged) * 100:.2f}%)" if len(prefix8_merged) else "")
+          f"({len(multi_source) / len(merged) * 100:.2f}%)" if len(merged) else "")
     if len(multi_source):
         print("병합된 행의 speed_std 중앙값:", round(multi_source["broadcast_speed_std"].median(), 2),
               "| 10km/h 초과 비율:", f"{(multi_source['broadcast_speed_std'] > 10).mean() * 100:.2f}%")
