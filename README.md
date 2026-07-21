@@ -65,21 +65,21 @@
 | `01_inspect_network_schema.py` | `MOCT_LINK.shp`의 크기, 컬럼, 좌표계 확인 |
 | `02_extract_seoul_links.py` | 서울 행정경계(25개 자치구) 기준 링크를 추출해 `seoul_link.*`, `seoul_link_attr.csv` 생성 |
 | `03_summarize_seoul_links.py` | 서울 링크 속성 기초 통계 출력 |
-| `04_merge_tdata_link_speed.py` | `LINK_ID`/`링크ID` exact match + 8자리 prefix fallback으로 T-data 속도 결합 |
+| `04_merge_tdata_link_speed.py` | 서울시 공식 "TOPIS-표준노드링크 매핑정보"(서비스링크→표준링크아이디)로 T-data 속도 결합 |
 | `05_analyze_matched_links.py` | T-data 매칭률, 도로등급별 커버리지, 연결 컴포넌트 분석 |
 | `06_plot_matched_links_map.py` | 매칭 링크 지도 이미지와 GeoJSON 생성 |
 | `07_add_dem_features.py` | DEM에서 링크별 고도/경사도 피처 생성 |
 | `08_fetch_kma_radar.py` | KMA HSR 격자와 1시간 누적 레이더 강수량 다운로드 |
 | `09_add_radar_precip_features.py` | 레이더 강수량을 링크·시간 기준으로 결합 |
 
-`04_merge_tdata_link_speed.py`의 2단계 매칭 방식(왜 필요한지, 어떻게 검증했는지)은 [data/README.md의 "T-data LINK_ID 매칭"](data/README.md#t-data-link_id-매칭)에 자세히 정리되어 있습니다.
+`04_merge_tdata_link_speed.py`의 공식 매핑 테이블 기반 매칭 방식(왜 필요한지, prefix8 확장을 검토했다가 채택하지 않은 이유)은 [data/README.md의 "T-data LINK_ID 매칭"](data/README.md#t-data-link_id-매칭)에 자세히 정리되어 있습니다.
 
 ## Notebooks
 
 | Notebook | Description |
 | --- | --- |
 | `10_eda_report.ipynb` | 최종 결합 테이블을 입력으로 강수량·경사도·도로등급·첨두시간대별 평균속도 EDA 테이블과 차트를 생성하는 리포트. 집계 테이블은 셀 출력으로 바로 보여주고, 보고서용 차트 7장만 `docs/figures/eda/`에 저장 |
-| `11_speed_model_baseline.ipynb` | 최종 결합 테이블의 원본 컬럼(파생 피처 제외)만으로 링크 평균속도를 예측하는 LightGBM 베이스라인. T-data prefix8 매칭의 1:N broadcast 구조로 인한 그룹(형제 링크) 유출을 막기 위해 `LINK_ID` 앞 8자리 기준 그룹 분할을 쓰고, 랜덤 분할과 비교해 유출 효과를 정량적으로 보여줌. 결과 차트 4장은 `docs/figures/model/`에 저장 |
+| `11_speed_model_baseline.ipynb` | 최종 결합 테이블의 원본 컬럼(파생 피처 제외)만으로 링크 평균속도를 예측하는 LightGBM 베이스라인. T-data가 1:N으로 broadcast되는 구조로 인한 그룹(형제 링크) 유출을 막기 위해 `LINK_ID` 앞 8자리 기준 그룹 분할을 쓰고, 랜덤 분할과 비교해 유출 효과를 정량적으로 보여줌. 결과 차트 4장은 `docs/figures/model/`에 저장 |
 
 노트북을 다시 실행하려면:
 
@@ -98,10 +98,10 @@ python -m nbconvert --to notebook --execute --inplace notebooks\11_speed_model_b
 
 ```text
 서울 링크 수: 63,548
-T-data 결합 고유 링크 수: 25,151 (39.6%)
-연결 컴포넌트 수: 206 | 최대 컴포넌트 링크 비율: 45.58%
+T-data 결합 고유 링크 수: 11,010 (17.33%)
+연결 컴포넌트 수: 7,142 | 최대 컴포넌트 링크 비율: 0.27%
 DEM 샘플 존재 링크 비율: 100.0%
-레이더 강수 결합 완료 시각: 119/119
+레이더 강수 결합 완료 시각: 238/238
 ```
 
 전체 수치, 도로등급별 매칭률, EDA 결과, 대표 그래프는 [data/README.md의 "Current Results"](data/README.md#current-results)를 참고하세요.
