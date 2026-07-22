@@ -53,3 +53,6 @@ traffic_data/*.prj
 
 # Editor temporary files
 tempCodeRunnerFile.py
+
+# verification temp files
+verification_suite/temp_outputs/
