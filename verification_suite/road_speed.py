@@ -12,6 +12,52 @@ SPEED_MERGED_PATH = OUTPUT_DIR / "seoul_link_speed_merged.csv"
 LINK_KEY = "LINK_ID"
 
 
+def analyze_match_rate_by_attribute(
+    all_links_df: pd.DataFrame,
+    matched_link_ids: set,
+    attribute_name: str,
+    attribute_label: str,
+    section_number: int
+) -> None:
+    """주어진 속성(도로유형, 차선 수 등)에 따라 T-data 결합률을 분석하고 출력합니다."""
+    print("\n" + "=" * 80)
+    print(f"{section_number}. {attribute_label}({attribute_name})별 T-data 결합률 분석")
+    print("=" * 80)
+
+    df = all_links_df.copy()
+    # 그룹화를 위해 결측값 처리
+    if pd.api.types.is_numeric_dtype(df[attribute_name]):
+        df[attribute_name] = df[attribute_name].fillna(0).astype(int)
+    else:
+        df[attribute_name] = df[attribute_name].fillna("N/A")
+
+    # 속성별 전체 링크 수 집계
+    total_by_attr = df.groupby(attribute_name).agg(
+        total_links=(LINK_KEY, 'count')
+    ).reset_index()
+
+    # 속성별 결합 성공 링크 수 집계
+    matched_links_df = df[df[LINK_KEY].isin(matched_link_ids)]
+    matched_by_attr = matched_links_df.groupby(attribute_name).agg(
+        matched_links=(LINK_KEY, 'count')
+    ).reset_index()
+
+    # 데이터 병합 및 결합률 계산
+    analysis_df = pd.merge(total_by_attr, matched_by_attr, on=attribute_name, how='left')
+    analysis_df['matched_links'] = analysis_df['matched_links'].fillna(0).astype(int)
+    analysis_df['match_rate(%)'] = (analysis_df['matched_links'] / analysis_df['total_links']) * 100
+    analysis_df = analysis_df.sort_values(by=attribute_name)
+
+    analysis_df.rename(columns={
+        attribute_name: attribute_label, 'total_links': '전체 링크 수',
+        'matched_links': '결합 성공 링크 수', 'match_rate(%)': '결합률 (%)'
+    }, inplace=True)
+
+    print(analysis_df.to_string(index=False, formatters={'결합률 (%)': '{:.2f}'.format}))
+    print(f"\n  -> [진단] 위 표는 '{attribute_label}'에 따라 T-data 결합률이 어떻게 달라지는지 보여줍니다.")
+    print("     결합률이 낮은 그룹은 속도 정보가 부족하여, 속도 추정 모델의 중요성이 더 큽니다.")
+
+
 def main():
     """
     T-data 속도 정보가 없는 링크의 특성을 분석하여,
@@ -40,9 +86,6 @@ def main():
     # 4. T-data 매칭/미매칭 링크 구분
     all_link_ids = set(all_links_df[LINK_KEY])
     matched_link_ids = set(matched_speed_df[LINK_KEY].unique())
-    unmatched_link_ids = all_link_ids - matched_link_ids
-
-    unmatched_links_df = all_links_df[all_links_df[LINK_KEY].isin(unmatched_link_ids)].copy()
 
     # 5. 분석 및 결과 출력
     print("\n" + "=" * 80)
@@ -51,73 +94,35 @@ def main():
 
     total_links = len(all_links_df)
     missing_max_spd = all_links_df['MAX_SPD'].fillna(0).le(0).sum()
+    missing_lanes = all_links_df['LANES'].fillna(0).le(0).sum()
+    missing_road_type = all_links_df['ROAD_TYPE'].isna().sum()
     missing_road_rank = all_links_df['ROAD_RANK'].isna().sum()
 
     print(f"- 전체 서울 링크 수: {total_links:,} 개")
     print(f"- 제한속도(MAX_SPD)가 없거나 0인 링크 수: {missing_max_spd:,} 개 ({(missing_max_spd/total_links)*100:.2f}%)")
+    print(f"- 차선 수(LANES)가 없거나 0인 링크 수: {missing_lanes:,} 개 ({(missing_lanes/total_links)*100:.2f}%)")
+    print(f"- 도로유형(ROAD_TYPE)이 없는 링크 수: {missing_road_type:,} 개 ({(missing_road_type/total_links)*100:.2f}%)")
     print(f"- 도로등급(ROAD_RANK)이 없는 링크 수: {missing_road_rank:,} 개 ({(missing_road_rank/total_links)*100:.2f}%)")
-    if missing_max_spd == 0 and missing_road_rank == 0:
-        print("  -> [결론] 모든 링크에 제한속도와 도로등급 정보가 존재하여 속도 추정의 기반이 됩니다.")
+
+    if missing_max_spd == 0 and missing_lanes == 0 and missing_road_type == 0 and missing_road_rank == 0:
+        print("  -> [결론] 모든 링크에 분석에 필요한 주요 속성(제한속도, 차선 수, 도로유형, 도로등급)이 존재합니다.")
     else:
-        print("  -> [결론] 일부 링크에 속성 정보가 누락되어 있어, 속도 추정 시 예외 처리가 필요합니다.")
+        print("  -> [결론] 일부 링크에 속성 정보가 누락되어 있어, 분석 시 '0' 또는 'N/A' 그룹으로 집계됩니다.")
 
     print("\n" + "=" * 80)
-    print("2. T-data 속도 미보유 링크 특성 분석")
+    print("2. T-data 결합 현황 요약")
     print("=" * 80)
 
-    total_unmatched = len(unmatched_links_df)
+    total_unmatched = total_links - len(matched_link_ids)
     print(f"- 전체 서울 링크 수: {total_links:,} 개")
-    print(f"- T-data 매칭 성공 링크 수: {len(matched_link_ids):,} 개")
+    print(f"- T-data 매칭 성공 링크 수: {len(matched_link_ids):,} 개 (전체의 {(len(matched_link_ids)/total_links)*100:.2f}%)")
     print(f"- T-data 속도 미보유 링크 수: {total_unmatched:,} 개 (전체의 {(total_unmatched/total_links)*100:.2f}%)")
 
-    if total_unmatched > 0:
-        print("\n--- [분석 1] 속도 미보유 링크의 도로등급(ROAD_RANK) 분포 ---")
-        road_rank_dist = unmatched_links_df['ROAD_RANK'].value_counts(dropna=False).sort_index()
-        print(road_rank_dist.to_string())
-        print("\n  -> [진단] 위 분포를 통해 어떤 종류의 도로에서 주로 속도 데이터가 누락되는지 파악할 수 있습니다.")
-        print("     (예: '104' 등급 도로가 대부분이라면, 간선/이면도로의 속도 데이터 확보가 어렵다는 의미)")
-
-        print("\n--- [분석 2] 속도 미보유 링크의 제한속도(MAX_SPD) 유효성 ---")
-        unmatched_missing_max_spd = unmatched_links_df['MAX_SPD'].fillna(0).le(0).sum()
-        print(f"- 속도 미보유 링크 중, 제한속도가 없거나 0인 링크 수: {unmatched_missing_max_spd:,} 개 (미보유 링크 중 {(unmatched_missing_max_spd/total_unmatched)*100:.2f}%)")
-        if unmatched_missing_max_spd == 0:
-            print("\n  -> [결론] 모든 속도 미보유 링크에 유효한 'MAX_SPD' 값이 존재합니다.")
-            print("     '제한속도(MAX_SPD) × 통행 효율 계수(α)' 방식의 속도 추정 전략을 바로 적용할 수 있습니다.")
-        else:
-            print("\n  -> [결론] 일부 속도 미보유 링크에는 'MAX_SPD' 값도 없어, 이들에 대한 별도의 처리 방안이 필요합니다.")
-
-    print("\n" + "=" * 80)
-    print("3. 도로 등급(ROAD_RANK)별 T-data 결합률 분석")
-    print("=" * 80)
-
-    # 도로등급별 전체 링크 수 집계
-    total_by_rank = all_links_df.groupby('ROAD_RANK').agg(
-        total_links=('LINK_ID', 'count')
-    ).reset_index()
-
-    # T-data와 결합된 링크만 필터링하여 도로등급별로 집계
-    matched_links_df = all_links_df[all_links_df[LINK_KEY].isin(matched_link_ids)]
-    matched_by_rank = matched_links_df.groupby('ROAD_RANK').agg(
-        matched_links=('LINK_ID', 'count')
-    ).reset_index()
-
-    # 전체 링크 수와 결합 성공 링크 수를 병합하고 결합률 계산
-    rank_analysis = pd.merge(total_by_rank, matched_by_rank, on='ROAD_RANK', how='left')
-    rank_analysis['matched_links'] = rank_analysis['matched_links'].fillna(0).astype(int)
-    rank_analysis['match_rate(%)'] = (rank_analysis['matched_links'] / rank_analysis['total_links']) * 100
-
-    rank_analysis = rank_analysis.sort_values('ROAD_RANK')
-
-    rank_analysis.rename(columns={
-        'ROAD_RANK': '도로등급',
-        'total_links': '전체 링크 수',
-        'matched_links': '결합 성공 링크 수',
-        'match_rate(%)': '결합률 (%)'
-    }, inplace=True)
-
-    print(rank_analysis.to_string(index=False, formatters={'결합률 (%)': '{:.2f}'.format}))
-    print("\n  -> [진단] 위 표는 어떤 도로 등급에서 T-data 결합률이 높은지/낮은지 보여줍니다.")
-    print("     결합률이 낮은 등급의 도로는 속도 정보가 부족하여, 속도 추정 모델의 중요성이 더 큽니다.")
+    # 도로 특성별 결합률 심층 분석
+    analyze_match_rate_by_attribute(all_links_df, matched_link_ids, 'ROAD_RANK', '도로등급', 3)
+    analyze_match_rate_by_attribute(all_links_df, matched_link_ids, 'ROAD_TYPE', '도로유형', 4)
+    analyze_match_rate_by_attribute(all_links_df, matched_link_ids, 'LANES', '차선 수', 5)
+    analyze_match_rate_by_attribute(all_links_df, matched_link_ids, 'MAX_SPD', '제한속도', 6)
 
 
 if __name__ == "__main__":
