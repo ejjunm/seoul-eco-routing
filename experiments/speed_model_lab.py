@@ -99,16 +99,25 @@ _ENC_CACHE = {}    # (split_sig, enc) -> 인코딩 배열 재사용
 
 
 def build_cache(verbose: bool = True) -> pd.DataFrame:
-    usecols = BASE_NUMERIC + BASE_CATEGORICAL + TIME_COLS + [TARGET, GROUP_SOURCE]
-    dtype = {c: str for c in BASE_CATEGORICAL + TIME_COLS}
+    # broadcast_source_link_ids = T-data 원본 구간ID(= 진짜 독립 표본 단위). 정직한 그룹분할용.
+    extra = ["broadcast_source_link_ids"]
+    usecols = BASE_NUMERIC + BASE_CATEGORICAL + TIME_COLS + [TARGET, GROUP_SOURCE] + extra
+    dtype = {c: str for c in BASE_CATEGORICAL + TIME_COLS + extra}
     dtype[GROUP_SOURCE] = str
     t = time.time()
-    df = pd.read_csv(CSV_PATH, usecols=usecols, dtype=dtype, encoding="utf-8-sig")
+    header = pd.read_csv(CSV_PATH, nrows=0, encoding="utf-8-sig").columns
+    usecols = [c for c in usecols if c in header]
+    df = pd.read_csv(CSV_PATH, usecols=usecols, dtype={k: v for k, v in dtype.items() if k in usecols},
+                     encoding="utf-8-sig")
     for c in BASE_NUMERIC + [TARGET]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df = df.rename(columns=RENAME_MAP)
     df = df.dropna(subset=[TARGET] + NUMERIC)
-    df["link_group"] = df[GROUP_SOURCE].str[:8]  # 그룹분할 키
+    df["link_group"] = df[GROUP_SOURCE].str[:8]  # prefix8 그룹키(휴리스틱)
+    # 구간ID: T-data 원본 소스가 있으면 그것, 없으면 prefix8로 폴백
+    src = df["broadcast_source_link_ids"] if "broadcast_source_link_ids" in df else pd.Series([None] * len(df))
+    df["section_id"] = src.fillna(df["link_group"]).astype(str)
+    df = df.drop(columns=[c for c in ["broadcast_source_link_ids"] if c in df])
     CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(CACHE_PATH, index=False)
     if verbose:
@@ -152,15 +161,32 @@ def build_feature_frame(base: pd.DataFrame, feats: set):
         is_peak = (base["peak_period"] != "N").astype("int8")
         X["precip_x_peak"] = base["precip_mm"] * is_peak
         X["slope_x_rain"] = base["abs_slope_pct"] * base["precip_mm"]
+    if "structural" in feats:
+        sf = load_structural()
+        cols = [c for c in sf.columns if c != "LINK_ID"]
+        m = base[["LINK_ID"]].merge(sf, on="LINK_ID", how="left")
+        for c in cols:
+            X[c] = m[c].values
     cat_cols = CATEGORICAL + extra_cat
     for c in cat_cols:
         X[c] = X[c].astype("category")
     return X, cat_cols
 
 
-def group_split(base):
+_STRUCT = None
+
+
+def load_structural():
+    """센서 없는 도로용 구조 피처 (build_structural_features.py 산출). 프로세스 내 1회 로딩."""
+    global _STRUCT
+    if _STRUCT is None:
+        _STRUCT = pd.read_csv(PROCESSED / "link_structural_features.csv", dtype={"LINK_ID": str})
+    return _STRUCT
+
+
+def group_split(base, col="link_group"):
     gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=RANDOM_STATE)
-    return next(gss.split(base, base[TARGET], base["link_group"]))
+    return next(gss.split(base, base[TARGET], base[col]))
 
 
 def time_split(base, test_frac=0.2):
@@ -211,8 +237,12 @@ def run_experiment(name, feats=(), temporal=(), params=None, split="group", test
         train_idx, test_idx, span = time_split(base, test_frac)
         split_sig = f"time_{test_frac}"
         note = f"train {span[0][:8]}~{span[1][:8]} / test {span[2][:8]}~{span[3][:8]}"
+    elif split == "section":
+        train_idx, test_idx = group_split(base, "section_id")  # 정직한 그룹분할(T-data 구간 단위)
+        split_sig = "section_0.2"
+        note = f"group(section_id, 고유 {base['section_id'].nunique():,})"
     else:
-        train_idx, test_idx = group_split(base)
+        train_idx, test_idx = group_split(base, "link_group")
         split_sig = "group_0.2"
         note = "group(LINK_ID prefix8)"
 
@@ -359,6 +389,17 @@ def run_deviation(name, dev_feats, split="time", test_frac=0.2, params=None, log
     return row
 
 
+def run_struct(test_frac=0.2):
+    """일 B: 센서 없는 도로용 구조 피처 누적 ablation (정직한 section 그룹분할 기준)."""
+    rows = []
+    # prefix8 그룹분할(기존 비교용) vs section 그룹분할(정직) 기준선
+    rows.append(run_experiment("s00_base_prefix8", (), (), None, "group", test_frac)[0])
+    rows.append(run_experiment("s01_base_section", (), (), None, "section", test_frac)[0])
+    # section 기준으로 구조 피처 추가
+    rows.append(run_experiment("s02_base+struct", ("structural",), (), None, "section", test_frac)[0])
+    return rows
+
+
 def run_compare(test_frac=0.2):
     """40%(prefix8) vs 17%(official) 비교용 핵심 실험 세트 + 주중/주말 룩업키 검증."""
     rows = []
@@ -408,7 +449,7 @@ BATCH_TIME = [
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["time", "group", "both", "refine", "deviation", "compare"], default="time")
+    ap.add_argument("--mode", choices=["time", "group", "both", "refine", "deviation", "compare", "struct"], default="time")
     ap.add_argument("--dataset", choices=list(DATASETS), default="prefix8",
                     help="prefix8=휴리스틱 25,151링크(39.6%%) / official=공식매핑 11,010링크(17.3%%)")
     ap.add_argument("--rebuild", action="store_true", help="parquet 캐시 강제 재생성")
@@ -420,6 +461,8 @@ def main():
     print(f"\n=== 실험 배치 시작 (dataset={args.dataset}, mode={args.mode}) ===")
     if args.mode == "compare":
         rows = run_compare(args.test_frac)
+    elif args.mode == "struct":
+        rows = run_struct(args.test_frac)
     elif args.mode == "refine":
         rows = run_refine(args.test_frac)
     elif args.mode == "deviation":
