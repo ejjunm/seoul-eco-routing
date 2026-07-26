@@ -21,7 +21,8 @@ from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 INPUT_PATH = PROCESSED_DATA_DIR / "seoul_link_speed_dem_weather_merged.csv"
-OUT_PATH = PROCESSED_DATA_DIR / "speed_model_evaluation.json"
+LINK_FEATURE_PATH = PROCESSED_DATA_DIR / "seoul_link_model_features.csv"
+OUT_PATH = PROCESSED_DATA_DIR / "speed_model_evaluation_enhanced.json"
 
 TARGET = "평균속도"
 WEIGHT = "sample_weight"
@@ -29,7 +30,7 @@ SOURCE_SECTION = "source_section_id"
 SOURCE_OBSERVATION = "source_observation_id"
 DATE = "기준일"
 
-NUMERIC_FEATURES = [
+BASE_NUMERIC_FEATURES = [
     "LANES",
     "MAX_SPD",
     "LENGTH",
@@ -46,7 +47,21 @@ NUMERIC_FEATURES = [
     "dem_sample_count",
     "precip_mm",
 ]
-CATEGORICAL_FEATURES = [
+STATIC_NUMERIC_FEATURES = [
+    "f_node_node_in_degree", "f_node_incoming_max_spd_mean", "f_node_incoming_lanes_mean",
+    "f_node_node_out_degree", "f_node_outgoing_max_spd_mean", "f_node_outgoing_lanes_mean", "f_node_node_total_degree",
+    "t_node_node_in_degree", "t_node_incoming_max_spd_mean", "t_node_incoming_lanes_mean",
+    "t_node_node_out_degree", "t_node_outgoing_max_spd_mean", "t_node_outgoing_lanes_mean", "t_node_node_total_degree",
+    "upstream_max_spd_mean", "downstream_max_spd_mean", "upstream_lanes_mean", "downstream_lanes_mean",
+    "node_complexity", "downstream_speed_delta", "slope_pct_clipped", "slope_outlier_flag",
+    "is_uphill", "is_downhill", "steep_uphill", "slope_length_m", "max_spd_x_lanes", "length_x_node_complexity",
+]
+DYNAMIC_NUMERIC_FEATURES = [
+    "hour_sin", "hour_cos", "dow_sin", "dow_cos", "is_morning_peak", "is_evening_peak",
+    "is_rain", "log_precip", "rain_morning_peak", "rain_evening_peak", "rain_x_max_spd",
+]
+NUMERIC_FEATURES = BASE_NUMERIC_FEATURES + STATIC_NUMERIC_FEATURES + DYNAMIC_NUMERIC_FEATURES
+BASE_CATEGORICAL_FEATURES = [
     "ROAD_RANK",
     "ROAD_TYPE",
     "ROAD_USE",
@@ -56,9 +71,12 @@ CATEGORICAL_FEATURES = [
     "REST_W",
     "REST_H",
     "C-ITS",
+]
+CATEGORICAL_FEATURES = BASE_CATEGORICAL_FEATURES + [
     "weekday",
     "is_weekend",
     "peak_period",
+    "rain_class",
 ]
 
 
@@ -76,27 +94,25 @@ def parse_args() -> argparse.Namespace:
 
 def load_data() -> pd.DataFrame:
     usecols = (
-        NUMERIC_FEATURES
-        + ["ROAD_RANK", "ROAD_TYPE", "ROAD_USE", "MULTI_LINK", "CONNECT", "REST_VEH", "REST_W", "REST_H", "C-ITS"]
-        + [TARGET, WEIGHT, SOURCE_SECTION, SOURCE_OBSERVATION, DATE]
+        BASE_NUMERIC_FEATURES
+        + BASE_CATEGORICAL_FEATURES
+        + ["LINK_ID", TARGET, WEIGHT, SOURCE_SECTION, SOURCE_OBSERVATION, DATE]
     )
     dtype = {
-        "ROAD_RANK": str,
-        "ROAD_TYPE": str,
-        "ROAD_USE": str,
-        "MULTI_LINK": str,
-        "CONNECT": str,
-        "REST_VEH": str,
-        "REST_W": str,
-        "REST_H": str,
-        "C-ITS": str,
+        **{column: str for column in BASE_CATEGORICAL_FEATURES},
+        "LINK_ID": str,
         SOURCE_SECTION: str,
         SOURCE_OBSERVATION: str,
         DATE: str,
     }
     df = pd.read_csv(INPUT_PATH, usecols=usecols, dtype=dtype, encoding="utf-8-sig")
 
-    for column in NUMERIC_FEATURES + [TARGET, WEIGHT]:
+    for column in BASE_NUMERIC_FEATURES + [TARGET, WEIGHT]:
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+
+    static = pd.read_csv(LINK_FEATURE_PATH, dtype={"LINK_ID": str}, encoding="utf-8-sig")
+    df = df.merge(static, on="LINK_ID", how="left", validate="many_to_one")
+    for column in STATIC_NUMERIC_FEATURES:
         df[column] = pd.to_numeric(df[column], errors="coerce")
 
     date = pd.to_datetime(df[DATE], format="%Y%m%d", errors="coerce")
@@ -108,6 +124,21 @@ def load_data() -> pd.DataFrame:
         ["morning", "evening"],
         default="off_peak",
     )
+    df["hour_sin"] = np.sin(2 * np.pi * hour / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * hour / 24)
+    df["dow_sin"] = np.sin(2 * np.pi * df["weekday"] / 7)
+    df["dow_cos"] = np.cos(2 * np.pi * df["weekday"] / 7)
+    df["is_morning_peak"] = hour.isin([7, 8, 9]).astype(int)
+    df["is_evening_peak"] = hour.isin([17, 18, 19]).astype(int)
+    df["is_rain"] = (df["precip_mm"] > 0).astype(int)
+    df["log_precip"] = np.log1p(df["precip_mm"].clip(lower=0))
+    df["rain_class"] = pd.cut(
+        df["precip_mm"], bins=[-np.inf, 0, 1, 5, 10, np.inf],
+        labels=["none", "light", "moderate", "heavy", "very_heavy"],
+    ).astype(str)
+    df["rain_morning_peak"] = df["is_rain"] * df["is_morning_peak"]
+    df["rain_evening_peak"] = df["is_rain"] * df["is_evening_peak"]
+    df["rain_x_max_spd"] = df["log_precip"] * df["MAX_SPD"]
 
     required = NUMERIC_FEATURES + CATEGORICAL_FEATURES + [TARGET, WEIGHT, SOURCE_SECTION, SOURCE_OBSERVATION, DATE]
     before = len(df)
