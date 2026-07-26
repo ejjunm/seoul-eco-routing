@@ -1,3 +1,5 @@
+import fnmatch
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
@@ -36,13 +38,31 @@ def read_seoul_links() -> pd.DataFrame:
     )
 
 
+def find_tdata_paths() -> list[Path]:
+    """
+    TDATA_SPEED_GLOB에 맞는 T-data CSV 경로를 찾는다.
+
+    Path.glob을 그대로 쓰지 않는 이유: macOS(APFS)는 한글 파일명을 NFD(자모 분리)로
+    저장하는데 소스코드의 패턴 문자열은 NFC(조합형)라, 파일이 있는데도 매칭이 0건이 된다
+    (Windows는 NFC로 저장돼 정상 동작). 실제 파일명과 패턴을 모두 NFC로 정규화해
+    비교하므로 macOS/Windows 양쪽에서 동일하게 찾는다.
+    """
+    if not TRAFFIC_RAW_DIR.is_dir():
+        return []
+    pattern = unicodedata.normalize("NFC", TDATA_SPEED_GLOB)
+    return sorted(
+        p for p in TRAFFIC_RAW_DIR.iterdir()
+        if p.is_file() and fnmatch.fnmatch(unicodedata.normalize("NFC", p.name), pattern)
+    )
+
+
 def read_tdata_speed() -> pd.DataFrame:
     """
     data/raw/traffic/ 아래 "1시간 소통정보 (구간별)*.csv"에 맞는 파일을
     전부 읽어서 합친다. T-data는 기간별로 별도 파일(예: "... (1).csv")로
     추가되는 경우가 많아, 파일명 하나를 고정하지 않고 패턴으로 찾는다.
     """
-    paths = sorted(TRAFFIC_RAW_DIR.glob(TDATA_SPEED_GLOB))
+    paths = find_tdata_paths()
     if not paths:
         raise SystemExit(f"T-data 파일이 없습니다: {TRAFFIC_RAW_DIR / TDATA_SPEED_GLOB}")
 

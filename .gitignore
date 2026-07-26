@@ -53,3 +53,8 @@ traffic_data/*.prj
 
 # Editor temporary files
 tempCodeRunnerFile.py
+
+# OS / 로컬 도구 찌꺼기 (macOS Finder, R 콘솔 등)
+.DS_Store
+.Rhistory
+.Rapp.history
