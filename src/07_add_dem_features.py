@@ -1,9 +1,8 @@
+import argparse
 from pathlib import Path
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
-import rasterio
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -20,14 +19,16 @@ SPEED_DEM_OUT = PROCESSED_DATA_DIR / "seoul_link_speed_dem_merged.csv"
 SAMPLE_POSITIONS = [0.0, 0.25, 0.5, 0.75, 1.0]
 
 
-def load_dem_sources() -> list[rasterio.io.DatasetReader]:
+def load_dem_sources() -> list:
+    import rasterio
+
     dem_paths = sorted(DEM_RAW_DIR.glob("*.img")) + sorted(DEM_RAW_DIR.glob("*.tif"))
     if not dem_paths:
         raise SystemExit(f"DEM 파일이 없습니다: {DEM_RAW_DIR}")
     return [rasterio.open(path) for path in dem_paths]
 
 
-def get_dem_crs(dem_sources: list[rasterio.io.DatasetReader]):
+def get_dem_crs(dem_sources: list):
     crs_values = {source.crs.to_string() for source in dem_sources if source.crs is not None}
     if len(crs_values) != 1:
         raise SystemExit(f"DEM 좌표계가 하나로 통일되어 있지 않습니다: {sorted(crs_values)}")
@@ -41,7 +42,7 @@ def point_in_bounds(x: float, y: float, bounds) -> bool:
 def sample_elevation(
     x: float,
     y: float,
-    dem_sources: list[rasterio.io.DatasetReader],
+    dem_sources: list,
 ) -> float:
     for source in dem_sources:
         if not point_in_bounds(x, y, source.bounds):
@@ -57,7 +58,7 @@ def sample_elevation(
 
 def sample_link_elevations(
     geometry,
-    dem_sources: list[rasterio.io.DatasetReader],
+    dem_sources: list,
 ) -> list[float]:
     values = []
     for position in SAMPLE_POSITIONS:
@@ -67,6 +68,8 @@ def sample_link_elevations(
 
 
 def build_dem_features() -> pd.DataFrame:
+    import geopandas as gpd
+
     dem_sources = load_dem_sources()
     try:
         dem_crs = get_dem_crs(dem_sources)
@@ -119,27 +122,44 @@ def build_dem_features() -> pd.DataFrame:
             source.close()
 
 
+def merge_speed_with_dem(dem_features: pd.DataFrame) -> None:
+    if not SPEED_MERGED_PATH.exists():
+        print("결합할 속도 데이터가 없습니다:", SPEED_MERGED_PATH)
+        return
+
+    speed = pd.read_csv(
+        SPEED_MERGED_PATH,
+        dtype={"LINK_ID": str},
+        encoding="utf-8-sig",
+    )
+    merged = speed.merge(dem_features, on="LINK_ID", how="left")
+    merged.to_csv(SPEED_DEM_OUT, index=False, encoding="utf-8-sig")
+    print("속도+DEM 결합 저장:", SPEED_DEM_OUT)
+    print("속도+DEM 결합 행 수:", len(merged))
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--merge-only",
+        action="store_true",
+        help="기존 DEM 피처를 재사용해 속도 데이터만 다시 결합합니다.",
+    )
+    args = parser.parse_args()
+
     PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if args.merge_only:
+        dem_features = pd.read_csv(LINK_DEM_OUT, dtype={"LINK_ID": str}, encoding="utf-8-sig")
+        print("기존 DEM 피처 재사용:", LINK_DEM_OUT)
+    else:
+        dem_features = build_dem_features()
+        dem_features.to_csv(LINK_DEM_OUT, index=False, encoding="utf-8-sig")
+        valid_ratio = dem_features["dem_sample_count"].gt(0).mean() * 100
+        print("DEM 피처 저장:", LINK_DEM_OUT)
+        print("링크 수:", len(dem_features))
+        print("DEM 샘플 존재 링크 비율(%):", round(valid_ratio, 2))
 
-    dem_features = build_dem_features()
-    dem_features.to_csv(LINK_DEM_OUT, index=False, encoding="utf-8-sig")
-
-    valid_ratio = dem_features["dem_sample_count"].gt(0).mean() * 100
-    print("DEM 피처 저장:", LINK_DEM_OUT)
-    print("링크 수:", len(dem_features))
-    print("DEM 샘플 존재 링크 비율(%):", round(valid_ratio, 2))
-
-    if SPEED_MERGED_PATH.exists():
-        speed = pd.read_csv(
-            SPEED_MERGED_PATH,
-            dtype={"LINK_ID": str, "링크ID": str},
-            encoding="utf-8-sig",
-        )
-        merged = speed.merge(dem_features, on="LINK_ID", how="left")
-        merged.to_csv(SPEED_DEM_OUT, index=False, encoding="utf-8-sig")
-        print("속도+DEM 결합 저장:", SPEED_DEM_OUT)
-        print("속도+DEM 결합 행 수:", len(merged))
+    merge_speed_with_dem(dem_features)
 
 
 if __name__ == "__main__":

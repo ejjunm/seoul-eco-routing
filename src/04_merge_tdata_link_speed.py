@@ -1,3 +1,5 @@
+import fnmatch
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
@@ -21,8 +23,10 @@ SPEED_KEY = "평균속도"
 DATE_KEY = "기준일"
 TIME_CODE_KEY = "시간코드"
 OFFICIAL_SERVICE_LINK_KEY = "서비스링크"
+OFFICIAL_LINK_ORDER_KEY = "표준링크순서"
 OFFICIAL_TARGET_LINK_KEY = "표준링크아이디"
 AGG_KEYS = [LINK_KEY, DATE_KEY, TIME_CODE_KEY]
+OBSERVATION_KEY_COLUMNS = [TDATA_LINK_KEY, DATE_KEY, TIME_CODE_KEY, "도로방향구분코드"]
 
 
 def read_seoul_links() -> pd.DataFrame:
@@ -36,13 +40,31 @@ def read_seoul_links() -> pd.DataFrame:
     )
 
 
+def find_tdata_paths() -> list[Path]:
+    """
+    TDATA_SPEED_GLOB에 맞는 T-data CSV 경로를 찾는다.
+
+    Path.glob을 그대로 쓰지 않는 이유: macOS(APFS)는 한글 파일명을 NFD(자모 분리)로
+    저장하는데 소스코드의 패턴 문자열은 NFC(조합형)라, 파일이 있는데도 매칭이 0건이 된다
+    (Windows는 NFC로 저장돼 정상 동작). 실제 파일명과 패턴을 모두 NFC로 정규화해
+    비교하므로 macOS/Windows 양쪽에서 동일하게 찾는다.
+    """
+    if not TRAFFIC_RAW_DIR.is_dir():
+        return []
+    pattern = unicodedata.normalize("NFC", TDATA_SPEED_GLOB)
+    return sorted(
+        p for p in TRAFFIC_RAW_DIR.iterdir()
+        if p.is_file() and fnmatch.fnmatch(unicodedata.normalize("NFC", p.name), pattern)
+    )
+
+
 def read_tdata_speed() -> pd.DataFrame:
     """
     data/raw/traffic/ 아래 "1시간 소통정보 (구간별)*.csv"에 맞는 파일을
     전부 읽어서 합친다. T-data는 기간별로 별도 파일(예: "... (1).csv")로
     추가되는 경우가 많아, 파일명 하나를 고정하지 않고 패턴으로 찾는다.
     """
-    paths = sorted(TRAFFIC_RAW_DIR.glob(TDATA_SPEED_GLOB))
+    paths = find_tdata_paths()
     if not paths:
         raise SystemExit(f"T-data 파일이 없습니다: {TRAFFIC_RAW_DIR / TDATA_SPEED_GLOB}")
 
@@ -77,9 +99,27 @@ def validate_columns(df: pd.DataFrame, required_columns: list[str], file_label: 
 def read_official_mapping() -> pd.DataFrame:
     mapping = pd.read_excel(
         OFFICIAL_MAPPING_PATH,
-        dtype={OFFICIAL_SERVICE_LINK_KEY: str, OFFICIAL_TARGET_LINK_KEY: str},
+        dtype={
+            OFFICIAL_SERVICE_LINK_KEY: str,
+            OFFICIAL_TARGET_LINK_KEY: str,
+        },
     )
-    return mapping[[OFFICIAL_SERVICE_LINK_KEY, OFFICIAL_TARGET_LINK_KEY]].dropna()
+    columns = [OFFICIAL_SERVICE_LINK_KEY, OFFICIAL_LINK_ORDER_KEY, OFFICIAL_TARGET_LINK_KEY]
+    validate_columns(mapping, columns, str(OFFICIAL_MAPPING_PATH))
+    mapping = mapping[columns].dropna(
+        subset=[OFFICIAL_SERVICE_LINK_KEY, OFFICIAL_TARGET_LINK_KEY]
+    ).copy()
+    mapping[OFFICIAL_LINK_ORDER_KEY] = pd.to_numeric(
+        mapping[OFFICIAL_LINK_ORDER_KEY], errors="coerce"
+    ).astype("Int64")
+    return mapping
+
+
+def build_source_observation_id(tdata_speed: pd.DataFrame) -> pd.Series:
+    """Return a stable ID for one source T-data speed observation."""
+    values = tdata_speed[OBSERVATION_KEY_COLUMNS].astype(str).copy()
+    values[TIME_CODE_KEY] = values[TIME_CODE_KEY].str.zfill(2)
+    return values.agg("_".join, axis=1)
 
 
 def match_official(seoul_links: pd.DataFrame, tdata_speed: pd.DataFrame) -> pd.DataFrame:
@@ -102,7 +142,15 @@ def match_official(seoul_links: pd.DataFrame, tdata_speed: pd.DataFrame) -> pd.D
     """
     mapping = read_official_mapping()
     seoul_ids = set(seoul_links[LINK_KEY].dropna())
-    mapping = mapping[mapping[OFFICIAL_TARGET_LINK_KEY].isin(seoul_ids)]
+    mapping = mapping[mapping[OFFICIAL_TARGET_LINK_KEY].isin(seoul_ids)].copy()
+    mapping["mapping_copy_count"] = mapping.groupby(OFFICIAL_SERVICE_LINK_KEY)[
+        OFFICIAL_TARGET_LINK_KEY
+    ].transform("nunique")
+    mapping["sample_weight"] = 1.0 / mapping["mapping_copy_count"]
+
+    tdata_speed = tdata_speed.copy()
+    tdata_speed["source_section_id"] = tdata_speed[TDATA_LINK_KEY]
+    tdata_speed["source_observation_id"] = build_source_observation_id(tdata_speed)
 
     merged = tdata_speed.merge(
         mapping,
@@ -132,20 +180,54 @@ def aggregate_broadcast_duplicates(merged: pd.DataFrame) -> pd.DataFrame:
     merged = merged.copy()
     merged[SPEED_KEY] = pd.to_numeric(merged[SPEED_KEY], errors="coerce")
 
+    # The normal official-mapping case is one source observation per target link/time.
+    # Avoid a costly groupby over millions of already-unique rows in that case.
+    if not merged.duplicated(AGG_KEYS).any():
+        merged["broadcast_source_count"] = 1
+        merged["broadcast_speed_std"] = 0.0
+        merged["broadcast_source_link_ids"] = merged["source_section_id"]
+        merged["broadcast_source_observation_ids"] = merged["source_observation_id"]
+        merged["broadcast_source_observation_count"] = 1
+        return merged.drop(columns=[TDATA_LINK_KEY])
+
     stats = merged.groupby(AGG_KEYS)[SPEED_KEY].agg(["mean", "count", "std"]).reset_index()
     stats.columns = AGG_KEYS + [SPEED_KEY, "broadcast_source_count", "broadcast_speed_std"]
     stats["broadcast_speed_std"] = stats["broadcast_speed_std"].fillna(0.0)
 
-    source_ids = (
-        merged.groupby(AGG_KEYS)[TDATA_LINK_KEY]
-        .agg(lambda values: ",".join(sorted(set(values))))
-        .rename("broadcast_source_link_ids")
+    source_metadata = (
+        merged.groupby(AGG_KEYS)
+        .agg(
+            broadcast_source_link_ids=(
+                "source_section_id",
+                lambda values: ",".join(sorted(set(values))),
+            ),
+            broadcast_source_observation_ids=(
+                "source_observation_id",
+                lambda values: ",".join(sorted(set(values))),
+            ),
+            broadcast_source_observation_count=("source_observation_id", "nunique"),
+            mapping_copy_count=("mapping_copy_count", "first"),
+            sample_weight=("sample_weight", "sum"),
+        )
         .reset_index()
     )
 
-    deduped = merged.drop(columns=[SPEED_KEY, TDATA_LINK_KEY]).groupby(AGG_KEYS, as_index=False).first()
+    deduped = (
+        merged.drop(
+            columns=[
+                SPEED_KEY,
+                TDATA_LINK_KEY,
+                "source_section_id",
+                "source_observation_id",
+                "mapping_copy_count",
+                "sample_weight",
+            ]
+        )
+        .groupby(AGG_KEYS, as_index=False)
+        .first()
+    )
     deduped = deduped.merge(stats, on=AGG_KEYS, how="left")
-    deduped = deduped.merge(source_ids, on=AGG_KEYS, how="left")
+    deduped = deduped.merge(source_metadata, on=AGG_KEYS, how="left")
     return deduped
 
 
@@ -159,7 +241,9 @@ def main() -> None:
     merged = match_official(seoul_links, tdata_speed)
 
     PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    merged.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
+    temp_out = OUT_CSV.with_suffix(".csv.tmp")
+    merged.to_csv(temp_out, index=False, encoding="utf-8-sig")
+    temp_out.replace(OUT_CSV)
 
     print("서울 링크 행 수:", len(seoul_links))
     print("서울 링크 고유 LINK_ID 수:", seoul_links[LINK_KEY].nunique())
@@ -169,6 +253,10 @@ def main() -> None:
     matched_link_count = merged[LINK_KEY].nunique()
     print("공식 매핑 매칭 링크 수:", matched_link_count,
           f"({matched_link_count / seoul_links[LINK_KEY].nunique() * 100:.2f}%)")
+    print("원본 T-data 서비스링크 수:", merged["broadcast_source_link_ids"].nunique())
+    print("공식 매핑 복제수 평균:", round(merged["mapping_copy_count"].mean(), 2),
+          "| 최대:", int(merged["mapping_copy_count"].max()))
+    print("sample_weight 합계:", round(merged["sample_weight"].sum(), 2))
     multi_source = merged[merged["broadcast_source_count"] > 1]
     print("여러 T-data 소스가 겹쳐 평균으로 병합된 행 수:", len(multi_source),
           f"({len(multi_source) / len(merged) * 100:.2f}%)" if len(merged) else "")
