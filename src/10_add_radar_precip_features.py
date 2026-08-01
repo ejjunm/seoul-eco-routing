@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import argparse
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
 
@@ -117,6 +117,8 @@ def build_link_grid_mapping(grid: dict[str, np.ndarray]) -> pd.DataFrame:
         if set(cached["LINK_ID"]) == target_link_ids:
             return cached
         print("링크 구성이 바뀌어 링크-레이더 격자 매핑 캐시를 다시 생성합니다:", LINK_GRID_MAP_PATH)
+
+    import geopandas as gpd
 
     links = gpd.read_file(SEOUL_LINK_SHP)
     links["LINK_ID"] = links["LINK_ID"].astype(str)
@@ -238,7 +240,9 @@ def merge_weather(precip: pd.DataFrame) -> None:
     ]
 
     merged = speed.merge(precip, on=["tm", "LINK_ID"], how="left")
-    merged.to_csv(SPEED_DEM_WEATHER_OUT, index=False, encoding="utf-8-sig")
+    temp_out = SPEED_DEM_WEATHER_OUT.with_suffix(".csv.tmp")
+    merged.to_csv(temp_out, index=False, encoding="utf-8-sig")
+    temp_out.replace(SPEED_DEM_WEATHER_OUT)
 
     print("속도+DEM+강수 결합 저장:", SPEED_DEM_WEATHER_OUT)
     print("결합 행 수:", len(merged))
@@ -246,9 +250,25 @@ def merge_weather(precip: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    grid = load_or_build_seoul_grid()
-    mapping = build_link_grid_mapping(grid)
-    precip = process_existing_radar(mapping)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--merge-only",
+        action="store_true",
+        help="기존 링크별 강수 피처를 재사용해 속도 데이터만 다시 결합합니다.",
+    )
+    args = parser.parse_args()
+
+    if args.merge_only:
+        precip = pd.read_csv(
+            LINK_PRECIP_OUT,
+            dtype={"LINK_ID": str, "tm": str},
+            encoding="utf-8-sig",
+        )
+        print("기존 강수 피처 재사용:", LINK_PRECIP_OUT)
+    else:
+        grid = load_or_build_seoul_grid()
+        mapping = build_link_grid_mapping(grid)
+        precip = process_existing_radar(mapping)
     merge_weather(precip)
 
 

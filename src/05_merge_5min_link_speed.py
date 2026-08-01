@@ -49,6 +49,17 @@ def main() -> None:
     merged = speed.merge(seoul_links, on=LINK_KEY, how="inner")
     merged["match_method"] = "5min_direct"
 
+    # 5분 데이터는 T-data 공식 매핑 때와 달리 1:N broadcast가 없어 각 행이
+    # 이미 독립된 관측이다. 그래도 downstream(11_evaluate_speed_model.py,
+    # 13_predict_all_link_speed.py)의 그룹분할/가중치 로직이 그대로 동작하도록,
+    # source_section_id=LINK_ID·source_observation_id=행 고유 키·
+    # sample_weight=1.0으로 채워 넣는다(복제가 없으니 가중치는 항상 1).
+    merged["source_section_id"] = merged[LINK_KEY]
+    merged["source_observation_id"] = (
+        merged[LINK_KEY] + "_" + merged[DATE_KEY] + "_" + merged[TIME_CODE_KEY]
+    )
+    merged["sample_weight"] = 1.0
+
     PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
     merged.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
 

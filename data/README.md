@@ -1,6 +1,6 @@
 # Data 상세 문서
 
-루트 [README.md](../README.md)는 프로젝트 구조/실행 방법 위주의 뼈대만 담고 있습니다. 이 문서는 각 원본 데이터의 스키마, 서울 링크 추출 기준, 속도 데이터 매칭 방식이 왜 지금 형태가 됐는지에 대한 배경·진단·검증 과정, 현재 결과 수치, 알아둬야 할 한계를 자세히 다룹니다.
+루트 [README.md](../README.md)는 프로젝트 구조/실행 방법 위주의 뼈대만 담고 있습니다. 이 문서는 각 원본 데이터의 스키마, 서울 링크 추출 기준, 속도 데이터 매칭 방식이 왜 지금 형태가 됐는지에 대한 배경·진단·검증 과정, 미관측 링크를 채우는 Model B의 누수 방지·평가 방식, 현재 결과 수치, 알아둬야 할 한계를 자세히 다룹니다.
 
 ## 목차
 
@@ -11,7 +11,9 @@
 5. [KMA HSR Radar](#kma-hsr-radar)
 6. [Generated Outputs](#generated-outputs)
 7. [Current Results](#current-results)
-8. [Notes / 한계](#notes--한계)
+8. [누수 방지와 Model B 평가](#누수-방지와-model-b-평가)
+9. [서울 전 링크 속도 생성](#서울-전-링크-속도-생성)
+10. [Notes / 한계](#notes--한계)
 
 ---
 
@@ -77,6 +79,7 @@ ITS 국가교통정보센터 계열에서 받은 5분 단위 전국 교통소통
 - `04_aggregate_5min_speed.py`가 원본에서 서울 `LINK_ID`와 일치하는 행만 걸러 (LINK_ID, 기준일, 시간코드) 단위로 5분 값을 평균 내 1시간 단위로 집계합니다(`sample_count_5min` 컬럼에 시간당 몇 개의 5분 샘플이 쓰였는지 남깁니다, 최대 12).
 - `05_merge_5min_link_speed.py`는 이 결과를 서울 링크 속성과 단순 결합만 합니다 — T-data 때와 달리 1:N broadcast나 서비스링크 크로스워크가 필요 없습니다.
 - `match_method` 컬럼 값은 `5min_direct` 하나입니다.
+- 5분 데이터는 복제가 없어 원래 `mapping_copy_count`/`sample_weight` 같은 가중치 보정이 필요 없지만, Model B(`11~14`번, 아래 "누수 방지와 Model B 평가" 참고)가 그대로 동작하도록 `source_section_id=LINK_ID`, `source_observation_id=LINK_ID_기준일_시간코드`, `sample_weight=1.0`을 채워 넣습니다.
 
 **검증**: 같은 기간 T-data와 비교했을 때, T-data 링크ID가 우연히 현재 LINK_ID와 일치하는 부분집합(약 29.6%, exact match 가능 구간)에서 상관계수 0.94~0.97, 평균절대오차 2~3km/h로 높은 일치도를 보였습니다. 공식 매핑을 거쳐 1:N broadcast가 적용된 구간에서만 상관계수가 0.80으로 낮아졌는데, 형제 링크별로 나눠 확인한 결과 이건 5분 데이터가 부정확해서가 아니라 **T-data 공식 매핑 자체가 같은 값을 여러 형제 링크에 복제하는 근사치 한계** 때문임을 확인했습니다(5분 데이터는 형제 링크마다 실제로 다른 값을 개별 관측).
 
@@ -157,6 +160,10 @@ KMA 레이더 원본은 한 시각당 약 48MB이며, 현재 5분 속도 데이�
 | `data/processed/link_radar_grid_mapping.csv` | 링크 중심점과 가장 가까운 HSR 격자 매핑(캐시, 아래 Notes 참고) |
 | `data/processed/seoul_link_radar_precip.csv` | 링크별 시간대 레이더 강수 피처 |
 | `data/processed/seoul_link_speed_dem_weather_merged.csv` | 최종 속도 + 링크 + DEM + 강수 결합 테이블 |
+| `data/processed/seoul_link_model_features.csv` | 서울 63,548개 링크의 노드 위상·경사 보정·조합 피처(`14_build_link_model_features.py`) |
+| `data/processed/speed_model_evaluation_enhanced.json` | Model B 시간·공간 일반화 성능, 누수 검증, 피처 중요도(`11_evaluate_speed_model.py`) |
+| `data/processed/seoul_all_link_weather_YYYYMMDDHHMM.csv` | 특정 시각의 서울 전 링크 정적 속성 + DEM + 강수 스냅샷(`12_build_all_link_weather_snapshot.py`) |
+| `data/processed/seoul_all_link_speed_YYYYMMDDHHMM.csv` | 특정 시각의 서울 전 링크 속도, 출처, 신뢰도, 통행시간(`13_predict_all_link_speed.py`) |
 | `data/processed/matched_road_rank_coverage.csv` | 도로등급별 매칭률 |
 | `data/processed/matched_graph_components.csv` | 매칭 링크 연결 컴포넌트 |
 | `data/processed/matched_link_ids.csv` | 속도 데이터와 매칭된 링크 목록 |
@@ -192,6 +199,8 @@ KMA 레이더 원본은 한 시각당 약 48MB이며, 현재 5분 속도 데이�
 최대 컴포넌트 링크 비율: 95.28%
 샘플 경로 탐색: 가능 (107개 링크, 예상 통행시간 37.83분)
 ```
+
+5분 데이터 관측 링크만으로도 최대 컴포넌트가 95.28%라 그래프 대부분이 이미 연결돼 있습니다(예전 T-data+공식매핑 방식은 0.27%뿐이라 관측 링크만으로는 경로탐색이 불가능했습니다). 그래도 관측이 없는 29.25%(18,588개)는 여전히 남아있어, Model B로 그 구간의 속도를 채워 전 링크 그래프 입력을 완성합니다. 미관측 링크에는 정답이 없으므로 아래 공간 일반화 평가를 대리 검증으로 사용합니다.
 
 도로등급별 매칭률(`matched_road_rank_coverage.csv`):
 
@@ -241,6 +250,72 @@ precip_mm > 0 시각 수: 148
 
 ---
 
+## 누수 방지와 Model B 평가
+
+### 왜 원본 관측 단위가 필요한가
+
+(T-data + 공식 매핑 시절) 서울시 공식 매핑은 하나의 T-data 서비스링크를 여러 표준링크로 확장할 수 있어서, 이 형제 링크들을 임의의 행 단위로 train/test에 나누면 동일한 속도 라벨이 양쪽에 들어가 성능이 실제보다 좋아지는 문제가 있었습니다. 5분 데이터는 이런 broadcast가 없지만(`source_section_id`가 항상 `LINK_ID`와 같음), 같은 링크의 다른 시간대 관측이 train/test에 나뉘어 들어가는 일반적인 시계열 유출을 막기 위해 같은 그룹분할 인프라를 그대로 재사용합니다.
+
+`11_evaluate_speed_model.py`는 다음 두 기준으로 이를 방지합니다.
+
+| 평가 | 분할 기준 | 의미 |
+| --- | --- | --- |
+| 시간 일반화 | 과거 날짜 학습, 미래 날짜 평가 | 이미 알려진 도로의 미래 시간대 속도 예측 |
+| 공간 일반화 | `source_section_id`(=`LINK_ID`) GroupKFold | 특정 링크를 학습에서 통째로 제외하고 새로운 도로구간 일반화 평가 |
+
+두 평가 모두 `source_observation_id`가 train/test에 동시에 존재하는지 검사합니다.
+
+### 평가 결과 (구 T-data 버전, 재평가 필요)
+
+아래 수치는 T-data+공식 매핑 시절(11,010개 링크, 17.33%) 데이터로 평가한 결과입니다. 5분 데이터(44,960개 링크, 70.75%)로는 아직 재실행하지 않았습니다 — 관측 커버리지가 4배 가까이 늘고 도로등급 대표성도 좋아진 만큼, 재실행하면 이 수치는 달라질 가능성이 높습니다.
+
+| 평가 | RMSE | MAE | R² |
+| --- | ---: | ---: | ---: |
+| 시간 일반화 | 6.43 km/h | 4.72 km/h | 0.740 |
+| 공간 일반화 5-fold 평균 | 7.71 km/h | 5.61 km/h | 0.641 |
+
+MAE 5.61 km/h는 새 원본 구간의 예측값이 실제 속도와 평균적으로 약 5.61 km/h 차이 난다는 뜻입니다. R² 0.641은 평균속도 하나로 예측하는 기준과 비교했을 때 속도 변동의 약 64.1%를 모델이 설명한다는 뜻입니다.
+
+### Model B 피처 범위
+
+Model B는 미관측 링크에도 적용해야 하므로 전 링크 공통 피처만 사용합니다.
+
+- 도로 속성: 차로수, 제한속도, 길이, `ROAD_RANK`, 도로유형·용도, 연결·통행제한 속성
+- 지형: 링크 5개 지점의 고도 통계, 고도차, signed/absolute 경사도
+- 경사 보정: `-12~12%` 클리핑, 이상치 여부, 오르막·내리막·급오르막, 경사×길이
+- 시간: 시각, 요일, 주말, 첨두시간, 시각·요일 순환형 `sin/cos`
+- 강수: 원 강수량, 비 여부, 로그 강수량, 강수 등급, 강수×첨두, 강수×제한속도
+- 도로망 위상: 출발/도착 노드의 진입·진출 링크 수, 인접 링크 평균 제한속도·차로수, 노드 복잡도
+- 조합: 제한속도×차로수, 링크길이×노드복잡도
+
+과거 속도 lag/rolling, T-data 도로구분·방향코드는 미관측 링크에서 생성할 수 없어 제외했습니다. 월·계절·공휴일은 현재 14일짜리 7월 데이터에서 변화가 거의 없으므로 제외했습니다.
+
+---
+
+## 서울 전 링크 속도 생성
+
+`12_build_all_link_weather_snapshot.py`가 특정 시각의 63,548개 링크에 정적 도로·DEM·레이더 강수를 결합하고, `13_predict_all_link_speed.py`가 다음 우선순위로 최종 속도를 선택합니다.
+
+1. 해당 시각에 5분 데이터 관측이 있으면 `official_observed`
+2. 전 링크 공통 피처가 정상이고 학습 범주에 포함되면 `static_model`
+3. 모델 입력이 불가능하면 도로등급·제한속도·시간대 기반 `hierarchical_fallback`
+
+**아래는 구 T-data 버전(11,010개 링크) 기준 2026-07-16 08:00 예시 결과입니다 — 5분 데이터로 재실행하면 `official_observed` 비율이 훨씬 커질 것으로 예상됩니다(재실행 전까지 참고용).**
+
+```text
+전체 링크: 63,548
+official_observed: 11,010
+static_model: 46,991
+hierarchical_fallback: 5,547
+학습에 없던 범주값 링크: 11
+속도 결측: 0
+통행시간 결측: 0
+```
+
+최종 `speed_kmh`로 `travel_time_sec = LENGTH / speed_kmh`를 계산하므로 모든 링크가 시간 비용을 갖습니다. 이 출력은 서울 전역 라우팅 그래프의 시간 비용 입력으로 사용할 수 있습니다.
+
+---
+
 ## Notes / 한계
 
 - `data/raw/` 아래 원본 데이터는 직접 받은 파일이므로 코드에서 수정하지 않는 것을 원칙으로 합니다.
@@ -249,3 +324,7 @@ precip_mm > 0 시각 수: 148
 - `seoul_link_speed_merged.csv`의 `sample_count_5min`이 낮은 행(예: 시간당 5분 샘플이 12개 중 몇 개뿐인 경우)은 그 시간대 관측이 성기다는 뜻이니, 정밀한 분석에는 참고하는 게 좋습니다.
 - `notebooks/10_eda_report.ipynb`, `notebooks/11_speed_model_baseline.ipynb`는 T-data 시절 컬럼에 의존하고 있어 5분 데이터 기반 파이프라인에서는 재실행 시 오류가 납니다 — 재정비가 필요합니다("Current Results > Speed Feature EDA" 참고).
 - `data/raw/traffic/`의 서비스링크 보간점 정보, `seoul_lev6_2024`/`seoul_link_lev5.5_2024`/`level5.5_level6_matchingtable`, 지점별 교통량 정보(139개 지점) 파일들은 매칭 확장 가능성을 검토했던 자료로 현재 파이프라인에서는 쓰지 않습니다(5분 데이터가 이미 이들보다 넓은 커버리지를 제공).
+- Model B(`11~14`번)의 공간 일반화는 관측 링크 일부를 숨겨 미관측 링크 상황을 모사한 결과입니다. 실제 미관측 29.25%(18,588개) 링크에는 정답 속도가 없으므로 그 링크들의 오차를 직접 계산한 것은 아닙니다. 또한 "평가 결과" 수치는 아직 구 T-data 버전 기준이라 5분 데이터로 재실행하면 달라질 수 있습니다(위 "누수 방지와 Model B 평가" 참고).
+- 현재 원본은 2026-07-07~2026-07-20의 14일 데이터입니다. 계절·월·공휴일 일반화를 주장하려면 더 긴 기간의 속도·기상 데이터가 필요합니다.
+- `slope_pct`는 짧은 링크와 90m DEM 해상도 때문에 튈 수 있어 Model B에서는 원본값과 함께 클리핑값·이상치 플래그를 사용합니다.
+- 전 링크 속도와 통행시간은 준비됐지만, 에너지 비용식과 최소시간/최소에너지 경로탐색은 후속 단계입니다.
