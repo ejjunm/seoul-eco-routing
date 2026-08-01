@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import os
-import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
@@ -16,9 +14,9 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 WEATHER_RAW_DIR = RAW_DATA_DIR / "weather"
-TRAFFIC_RAW_DIR = RAW_DATA_DIR / "traffic"
+PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 KMA_API_KEY_PATH = WEATHER_RAW_DIR / "kma_api_key.txt"
-TDATA_SPEED_GLOB = "1시간 소통정보 (구간별)*.csv"
+FIVEMIN_SPEED_PATH = PROCESSED_DATA_DIR / "seoul_link_speed_5min_hourly.csv"
 
 GRID_DIR = WEATHER_RAW_DIR / "grid"
 RADAR_DIR = WEATHER_RAW_DIR / "radar"
@@ -134,7 +132,7 @@ def fetch_radar(api_key: str, tm: str, overwrite: bool = False) -> None:
     save_text(url, RADAR_DIR / f"hsr_pcph_acc60_{tm}.txt", api_key, overwrite=overwrite)
 
 
-def tdata_row_to_tm(date_value, time_code_value) -> str:
+def speed_row_to_tm(date_value, time_code_value) -> str:
     date = datetime.strptime(str(int(date_value)), "%Y%m%d")
     time_code = int(time_code_value)
     if time_code == 24:
@@ -142,38 +140,17 @@ def tdata_row_to_tm(date_value, time_code_value) -> str:
     return date.strftime("%Y%m%d") + f"{time_code:02d}00"
 
 
-def find_tdata_paths() -> list[Path]:
-    """
-    TDATA_SPEED_GLOB에 맞는 T-data CSV 경로를 찾는다.
-
-    Path.glob을 그대로 쓰지 않는 이유: macOS(APFS)는 한글 파일명을 NFD(자모 분리)로
-    저장하는데 소스코드의 패턴 문자열은 NFC(조합형)라, 파일이 있는데도 매칭이 0건이 된다
-    (Windows는 NFC로 저장돼 정상 동작). 실제 파일명과 패턴을 모두 NFC로 정규화해
-    비교하므로 macOS/Windows 양쪽에서 동일하게 찾는다.
-    """
-    if not TRAFFIC_RAW_DIR.is_dir():
-        return []
-    pattern = unicodedata.normalize("NFC", TDATA_SPEED_GLOB)
-    return sorted(
-        p for p in TRAFFIC_RAW_DIR.iterdir()
-        if p.is_file() and fnmatch.fnmatch(unicodedata.normalize("NFC", p.name), pattern)
-    )
-
-
-def iter_tdata_tms():
-    paths = find_tdata_paths()
-    if not paths:
-        raise SystemExit(f"T-data 파일이 없습니다: {TRAFFIC_RAW_DIR / TDATA_SPEED_GLOB}")
-
-    times = pd.concat(
-        [
-            pd.read_csv(path, usecols=["기준일", "시간코드"], encoding="utf-8-sig")
-            for path in paths
-        ],
-        ignore_index=True,
+def iter_5min_speed_tms():
+    if not FIVEMIN_SPEED_PATH.exists():
+        raise SystemExit(
+            f"5분 집계 속도 파일이 없습니다: {FIVEMIN_SPEED_PATH}\n"
+            "10_aggregate_5min_speed.py를 먼저 실행하세요."
+        )
+    times = pd.read_csv(
+        FIVEMIN_SPEED_PATH, usecols=["기준일", "시간코드"], encoding="utf-8-sig",
     ).drop_duplicates()
     tms = {
-        tdata_row_to_tm(date_value, time_code_value)
+        speed_row_to_tm(date_value, time_code_value)
         for date_value, time_code_value in zip(times["기준일"], times["시간코드"])
     }
     yield from sorted(tms)
@@ -186,12 +163,12 @@ def main() -> None:
     parser.add_argument("--start-tm", help="반복 다운로드 시작시각. 예: 202607070000")
     parser.add_argument("--end-tm", help="반복 다운로드 종료시각. 예: 202607072300")
     parser.add_argument("--step-minutes", type=int, default=60, help="반복 다운로드 간격. 기본 60분")
-    parser.add_argument("--from-tdata-times", action="store_true", help="T-data CSV의 기준일/시간코드에 맞는 레이더 시각을 모두 내려받습니다.")
+    parser.add_argument("--from-5min-times", action="store_true", help="seoul_link_speed_5min_hourly.csv의 기준일/시간코드에 맞는 레이더 시각을 모두 내려받습니다.")
     parser.add_argument("--overwrite", action="store_true", help="이미 내려받은 파일도 다시 받습니다.")
     args = parser.parse_args()
 
-    if not args.grid and not args.tm and not (args.start_tm and args.end_tm) and not args.from_tdata_times:
-        parser.error("--grid, --tm, --start-tm/--end-tm, 또는 --from-tdata-times 중 하나가 필요합니다.")
+    if not args.grid and not args.tm and not (args.start_tm and args.end_tm) and not args.from_5min_times:
+        parser.error("--grid, --tm, --start-tm/--end-tm, 또는 --from-5min-times 중 하나가 필요합니다.")
 
     api_key = load_api_key()
 
@@ -205,9 +182,9 @@ def main() -> None:
         for tm in iter_tms(args.start_tm, args.end_tm, args.step_minutes):
             fetch_radar(api_key, tm, overwrite=args.overwrite)
 
-    if args.from_tdata_times:
+    if args.from_5min_times:
         failed_tms = []
-        for tm in iter_tdata_tms():
+        for tm in iter_5min_speed_tms():
             try:
                 fetch_radar(api_key, tm, overwrite=args.overwrite)
             except (Exception, SystemExit) as exc:
