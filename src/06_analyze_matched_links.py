@@ -59,7 +59,6 @@ def read_merged() -> pd.DataFrame:
     return pd.read_csv(
         MERGED_PATH,
         dtype={
-            "링크ID": str,
             "LINK_ID": str,
             "F_NODE": str,
             "T_NODE": str,

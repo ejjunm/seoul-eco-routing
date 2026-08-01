@@ -155,7 +155,7 @@ def build_link_grid_mapping(grid: dict[str, np.ndarray]) -> pd.DataFrame:
     return mapping
 
 
-def tdata_row_to_tm(date_value, time_code_value) -> str:
+def speed_row_to_tm(date_value, time_code_value) -> str:
     date = datetime.strptime(str(int(date_value)), "%Y%m%d")
     time_code = int(time_code_value)
     if time_code == 24:
@@ -181,7 +181,7 @@ def process_existing_radar(mapping: pd.DataFrame) -> pd.DataFrame:
         encoding="utf-8-sig",
     ).drop_duplicates()
     speed_times["tm"] = [
-        tdata_row_to_tm(date_value, time_code_value)
+        speed_row_to_tm(date_value, time_code_value)
         for date_value, time_code_value in zip(speed_times["기준일"], speed_times["시간코드"])
     ]
 
@@ -229,11 +229,11 @@ def merge_weather(precip: pd.DataFrame) -> None:
 
     speed = pd.read_csv(
         SPEED_DEM_PATH,
-        dtype={"LINK_ID": str, "링크ID": str},
+        dtype={"LINK_ID": str},
         encoding="utf-8-sig",
     )
     speed["tm"] = [
-        tdata_row_to_tm(date_value, time_code_value)
+        speed_row_to_tm(date_value, time_code_value)
         for date_value, time_code_value in zip(speed["기준일"], speed["시간코드"])
     ]
 

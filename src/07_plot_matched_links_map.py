@@ -46,7 +46,7 @@ def main() -> None:
     seoul_links.plot(ax=ax, color="#d9d9d9", linewidth=0.15, alpha=0.45)
     matched.plot(ax=ax, color="#d62728", linewidth=0.9, alpha=0.95)
 
-    ax.set_title("T-data Matched Links on Seoul Link Network", fontsize=15, pad=12)
+    ax.set_title("Matched Links on Seoul Link Network", fontsize=15, pad=12)
     ax.set_axis_off()
     ax.text(
         0.01,

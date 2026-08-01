@@ -133,7 +133,7 @@ def main() -> None:
     if SPEED_MERGED_PATH.exists():
         speed = pd.read_csv(
             SPEED_MERGED_PATH,
-            dtype={"LINK_ID": str, "링크ID": str},
+            dtype={"LINK_ID": str},
             encoding="utf-8-sig",
         )
         merged = speed.merge(dem_features, on="LINK_ID", how="left")

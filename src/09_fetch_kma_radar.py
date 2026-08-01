@@ -144,7 +144,7 @@ def iter_5min_speed_tms():
     if not FIVEMIN_SPEED_PATH.exists():
         raise SystemExit(
             f"5분 집계 속도 파일이 없습니다: {FIVEMIN_SPEED_PATH}\n"
-            "10_aggregate_5min_speed.py를 먼저 실행하세요."
+            "04_aggregate_5min_speed.py를 먼저 실행하세요."
         )
     times = pd.read_csv(
         FIVEMIN_SPEED_PATH, usecols=["기준일", "시간코드"], encoding="utf-8-sig",

@@ -85,14 +85,24 @@ def main() -> None:
     combined = combined.rename(columns={FIVEMIN_LINK_KEY: LINK_KEY, DATE_KEY_RAW: DATE_KEY, "count": "sample_count_5min"})
     combined = combined.drop(columns=["sum"])
 
+    new_dates = set(combined[DATE_KEY].unique())
+    if OUT_CSV.exists():
+        previous = pd.read_csv(OUT_CSV, dtype={LINK_KEY: str, DATE_KEY: str, TIME_CODE_KEY: str}, encoding="utf-8-sig")
+        kept_previous = previous[~previous[DATE_KEY].isin(new_dates)]
+        dropped = previous[DATE_KEY].nunique() - kept_previous[DATE_KEY].nunique()
+        if dropped:
+            print(f"기존 결과 중 {dropped}개 날짜는 이번 실행분으로 덮어씁니다(같은 날짜 재처리).")
+        combined = pd.concat([kept_previous, combined], ignore_index=True)
+
     PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
     combined.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
 
     print()
-    print("처리한 일자 수:", len(paths))
+    print("이번 실행에서 처리한 일자 수:", len(paths))
+    print("저장 파일에 누적된 전체 일자 수:", combined[DATE_KEY].nunique())
     print("서울 링크 수:", len(seoul_ids))
-    print("결합된 (링크, 날짜, 시간코드) 행 수:", len(combined))
-    print("결합된 고유 LINK_ID 수:", combined[LINK_KEY].nunique(), f"({combined[LINK_KEY].nunique() / len(seoul_ids) * 100:.2f}%)")
+    print("누적 (링크, 날짜, 시간코드) 행 수:", len(combined))
+    print("누적 고유 LINK_ID 수:", combined[LINK_KEY].nunique(), f"({combined[LINK_KEY].nunique() / len(seoul_ids) * 100:.2f}%)")
     print("시간당 5분 샘플 수 평균:", round(combined["sample_count_5min"].mean(), 2), "(최대 12)")
     print("저장 파일:", OUT_CSV)
 

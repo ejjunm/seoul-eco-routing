@@ -25,7 +25,7 @@ def read_seoul_links() -> pd.DataFrame:
 
 def read_5min_speed() -> pd.DataFrame:
     """
-    10_aggregate_5min_speed.py가 만든 (LINK_ID, 기준일, 시간코드)별 1시간
+    04_aggregate_5min_speed.py가 만든 (LINK_ID, 기준일, 시간코드)별 1시간
     집계 속도를 읽는다. 이 LINK_ID는 서울 표준노드링크 LINK_ID와 이미
     직접 일치하는 값이라(별도 검증 완료), T-data 때와 달리 서비스링크
     매핑이나 1:N broadcast 없이 그대로 결합할 수 있다.
@@ -33,7 +33,7 @@ def read_5min_speed() -> pd.DataFrame:
     if not FIVEMIN_SPEED_PATH.exists():
         raise SystemExit(
             f"5분 집계 속도 파일이 없습니다: {FIVEMIN_SPEED_PATH}\n"
-            "10_aggregate_5min_speed.py를 먼저 실행하세요."
+            "04_aggregate_5min_speed.py를 먼저 실행하세요."
         )
     return pd.read_csv(
         FIVEMIN_SPEED_PATH,
