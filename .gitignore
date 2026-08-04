@@ -21,6 +21,7 @@ env/
 # Local tool caches
 .matplotlib/
 .ipynb_checkpoints/
+catboost_info/
 
 # Local secrets
 traffic_data/api_key.txt
