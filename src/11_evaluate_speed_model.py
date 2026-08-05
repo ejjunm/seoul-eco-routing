@@ -8,6 +8,7 @@ but are never used as model inputs.
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 from pathlib import Path
 
@@ -140,6 +141,11 @@ def load_data() -> pd.DataFrame:
     df["rain_evening_peak"] = df["is_rain"] * df["is_evening_peak"]
     df["rain_x_max_spd"] = df["log_precip"] * df["MAX_SPD"]
 
+    # float64로 두면 67개 수치 피처 x 1,200만 행짜리 학습 배열 하나가 6GB를 넘어가 LightGBM이
+    # 메모리 할당에 실패한다(실측). float32로 낮춰 절반 수준으로 줄인다.
+    for column in NUMERIC_FEATURES + [TARGET, WEIGHT]:
+        df[column] = df[column].astype("float32")
+
     required = NUMERIC_FEATURES + CATEGORICAL_FEATURES + [TARGET, WEIGHT, SOURCE_SECTION, SOURCE_OBSERVATION, DATE]
     before = len(df)
     df = df.dropna(subset=required).copy()
@@ -227,6 +233,7 @@ def main() -> None:
     for fold, (train_index, test_index) in enumerate(splitter.split(df, groups=groups), start=1):
         result, _ = evaluate_split(df, train_index, test_index, args, f"spatial_fold_{fold}")
         spatial_results.append(result)
+        gc.collect()
 
     importance = pd.DataFrame(
         {
