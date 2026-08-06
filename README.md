@@ -32,7 +32,8 @@
 │   │   ├── traffic/    # 5분 단위 전국 교통소통 원본(202607_5Min/*.csv), bus_lane/, school_zone/, speed_bump/, traffic_volume.xlsx 등
 │   │   ├── dem/        # 37608.img, 37612.img, 37705.img, 37709.img
 │   │   └── weather/    # KMA key, HSR grid, radar raw files
-│   ├── interim/        # seoul_link.*
+│   ├── interim/        # pipeline 공식 중간 산출물(seoul_link.*, seoul_link_speed_5min_hourly.csv)
+│   │   └── notebook_cache/  # 노트북·experiments 전용 캐시(재실행하면 다시 생김, 자유롭게 삭제 가능)
 │   └── processed/      # generated CSV/GeoJSON/PNG/NPZ outputs
 ├── docs/
 │   └── figures/

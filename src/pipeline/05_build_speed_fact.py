@@ -30,7 +30,7 @@ RAW_DIR = PROJECT_ROOT / "data" / "raw"
 INTERIM_DIR = PROJECT_ROOT / "data" / "interim"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
-FIVEMIN_PATH = PROCESSED_DIR / "seoul_link_speed_5min_hourly.csv"
+FIVEMIN_PATH = INTERIM_DIR / "seoul_link_speed_5min_hourly.csv"
 SEOUL_LINK_SHP = INTERIM_DIR / "seoul_link.shp"
 GRID_LON_PATH = RAW_DIR / "weather" / "grid" / "hsr_lon.txt"
 GRID_LAT_PATH = RAW_DIR / "weather" / "grid" / "hsr_lat.txt"

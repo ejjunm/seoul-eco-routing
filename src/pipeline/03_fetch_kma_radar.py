@@ -23,9 +23,10 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 WEATHER_RAW_DIR = RAW_DATA_DIR / "weather"
+INTERIM_DATA_DIR = PROJECT_ROOT / "data" / "interim"
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 KMA_API_KEY_PATH = WEATHER_RAW_DIR / "kma_api_key.txt"
-FIVEMIN_SPEED_PATH = PROCESSED_DATA_DIR / "seoul_link_speed_5min_hourly.csv"
+FIVEMIN_SPEED_PATH = INTERIM_DATA_DIR / "seoul_link_speed_5min_hourly.csv"
 
 GRID_DIR = WEATHER_RAW_DIR / "grid"
 RADAR_DIR = WEATHER_RAW_DIR / "radar"

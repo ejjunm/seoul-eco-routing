@@ -3,7 +3,7 @@
 구 src/04_aggregate_5min_speed.py와 로직 동일(이미 올바른 grain — LINK_ID x
 기준일 x 시간코드 — 이라 변경 불필요), src/pipeline/으로 위치만 이동.
 
-출력: data/processed/seoul_link_speed_5min_hourly.csv
+출력: data/interim/seoul_link_speed_5min_hourly.csv (다음 파이프라인 단계의 중간 재료)
 
 사용: python src/pipeline/02_aggregate_5min_speed.py
 """
@@ -16,12 +16,13 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 TRAFFIC_RAW_DIR = RAW_DATA_DIR / "traffic"
+INTERIM_DATA_DIR = PROJECT_ROOT / "data" / "interim"
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 
 SEOUL_LINK_ATTR_PATH = PROCESSED_DATA_DIR / "seoul_link_attr.csv"
 FIVEMIN_DIR = TRAFFIC_RAW_DIR / "202607_5Min"
 FIVEMIN_GLOB = "*_5Min.csv"
-OUT_CSV = PROCESSED_DATA_DIR / "seoul_link_speed_5min_hourly.csv"
+OUT_CSV = INTERIM_DATA_DIR / "seoul_link_speed_5min_hourly.csv"
 
 LINK_KEY = "LINK_ID"
 FIVEMIN_LINK_KEY = "LINKID"
