@@ -29,7 +29,10 @@
 │   └── 14_build_link_model_features.py
 ├── notebooks/
 │   ├── 10_eda_report.ipynb        # 주의: 재정비 필요, 아래 Notebooks 참고
-│   └── 11_speed_model_baseline.ipynb  # 주의: 재정비 필요, 아래 Notebooks 참고
+│   ├── 11_speed_model_baseline.ipynb  # 주의: 재정비 필요, 아래 Notebooks 참고
+│   ├── 12_derived_features_lightgbm.ipynb  # 파생/외부 피처 검증
+│   ├── 12_model_a_history.ipynb   # 관측 링크용 이력 모델
+│   └── 13_tier_split_evaluation.ipynb  # A/B/C 계층 분리 평가
 ├── data/
 │   ├── README.md       # 데이터 스키마/매칭 방식/결과 상세 문서
 │   ├── raw/
@@ -132,8 +135,11 @@ Model B에는 **서울 전체 링크에서 예측 시점에도 얻을 수 있는
 | --- | --- |
 | `10_eda_report.ipynb` | 최종 결합 테이블을 입력으로 강수량·경사도·도로등급·첨두시간대별 평균속도 EDA 테이블과 차트를 생성하는 리포트. 집계 테이블은 셀 출력으로 바로 보여주고, 보고서용 차트 7장만 `docs/figures/eda/`에 저장 |
 | `11_speed_model_baseline.ipynb` | 초기 LightGBM 베이스라인과 랜덤/그룹 분할 비교. 현재 공식 원본 관측 단위 평가 기준은 `11_evaluate_speed_model.py`가 담당 |
+| `12_derived_features_lightgbm.ipynb` | 파생/외부 피처(버스전용차로 겹침비율, View-T 추정교통량, 순환 인코딩, 인접 실측 이웃속도)를 LightGBM 하나로 빠르게 검증 |
+| `12_model_a_history.ipynb` | 관측 링크(Model A)용 이력 모델 — 링크×시간×주중/주말 조회표와 lag 피처 비교 |
+| `13_tier_split_evaluation.ipynb` | 링크를 A(관측)/B(미관측·이웃있음)/C(미관측·이웃없음)로 나눠 계층별로 성능을 재측정. 인접 이웃속도 피처가 C 계층에서 성능을 떨어뜨리는 문제와 분리 모델 해결책을 검증 |
 
-**주의**: 두 노트북 모두 예전 T-data 기반 컬럼(`도로방향구분코드`, `도로구분코드`, `요일코드`, `요일그룹코드`, `첨두시구분`, `도로명`, `시작노드명`/`종료노드명`, `broadcast_source_count` 등)을 참조합니다. 5분 데이터 기반 파이프라인으로 바뀌면서 이 컬럼들이 최종 테이블에서 전부 빠졌기 때문에(대신 `sample_count_5min`이 생김), **지금 상태로 재실행하면 오류가 납니다.** `요일`/`첨두시구분`류는 `기준일`/`시간코드`로 직접 계산해서 대체할 수 있지만, `도로구분코드`(TOPIS 자체 간선/이면 분류)는 5분 데이터에 대응 정보가 없어 복원이 안 됩니다. 재실행 전에 두 노트북의 피처 목록을 새 스키마에 맞게 다시 정비해야 합니다.
+**주의**: `10`/`11` 두 노트북은 예전 T-data 기반 컬럼(`도로방향구분코드`, `도로구분코드`, `요일코드`, `요일그룹코드`, `첨두시구분`, `도로명`, `시작노드명`/`종료노드명`, `broadcast_source_count` 등)을 참조합니다. 5분 데이터 기반 파이프라인으로 바뀌면서 이 컬럼들이 최종 테이블에서 전부 빠졌기 때문에(대신 `sample_count_5min`이 생김), **지금 상태로 재실행하면 오류가 납니다.** `요일`/`첨두시구분`류는 `기준일`/`시간코드`로 직접 계산해서 대체할 수 있지만, `도로구분코드`(TOPIS 자체 간선/이면 분류)는 5분 데이터에 대응 정보가 없어 복원이 안 됩니다. 재실행 전에 두 노트북의 피처 목록을 새 스키마에 맞게 다시 정비해야 합니다.
 
 노트북을 실행하려면:
 
@@ -146,7 +152,10 @@ jupyter lab notebooks\10_eda_report.ipynb
 ```bat
 python -m nbconvert --to notebook --execute --inplace notebooks\10_eda_report.ipynb
 python -m nbconvert --to notebook --execute --inplace notebooks\11_speed_model_baseline.ipynb
+python -m nbconvert --to notebook --execute --inplace notebooks\13_tier_split_evaluation.ipynb
 ```
+
+`13_tier_split_evaluation.ipynb`는 15.1M행을 6번 학습해서 약 15분 걸립니다. 빠르게 확인만 하려면 설정 셀의 `SAMPLE_FRAC`을 `0.15`로 낮추면 5분 안에 끝나며 결론은 동일합니다. 실행 시 `data/interim/nb13_feature_cache.parquet`(피처 캐시)와 `nb13_results.csv`(폴드별 원시 결과)가 생성되며, 둘 다 이 노트북 전용 산출물이라 공식 파이프라인 목록에는 포함되지 않습니다.
 
 ## Current Results (요약)
 
@@ -166,6 +175,26 @@ Model B(구 T-data 버전, 11,010개 링크 기준 — 5분 데이터로 재평�
 원본 관측 train/test 중복: 0건
 전 링크 예측 결과: 63,548개 | 속도/통행시간 결측 0건
 ```
+
+계층별 성능(`13_tier_split_evaluation.ipynb`, 5분 데이터 44,960개 링크 · 15.1M행 기준):
+
+| 계층 | 링크수 | 연장 | 배포 시 쓰는 방법 | 평가 분할 | R² | MAE |
+| --- | ---: | ---: | --- | --- | ---: | ---: |
+| A 관측 | 44,960 (70.7%) | 4,858 km | 이력 조회표(링크×시간×주중/주말) | 날짜 순차 | 0.877 | 2.75 |
+| B 미관측·이웃있음 | 14,006 (22.0%) | 787 km | LightGBM + 인접 실측 이웃속도 | 공간 블록 2km | 0.763 | 5.81 |
+| C 미관측·이웃없음 | 4,582 (7.2%) | 402 km | LightGBM 정적+교통량 (이웃속도 **제외**) | 공간 블록 2km | 0.454 | 6.22 |
+
+C 계층에 이웃속도 피처를 그대로 넣으면 R²가 0.454 → 0.302로 **떨어집니다**(훈련 때 있던 피처가 배포 때 결측이 되는 문제). 미관측 링크는 계층별로 다른 모델을 써야 합니다 — 근거와 해결책 비교는 노트북 6절 참고.
+
+외부 피처의 계층별 커버리지(노트북 2절):
+
+| 계층 | 현재 View-T 추정교통량(Level5.5) | View-T 상세도로망 Level6 |
+| --- | ---: | ---: |
+| A 관측 | 17,675 (39.3%) | 26,384 (58.7%) |
+| B 미관측·이웃있음 | 204 (1.5%) | 3,412 (24.4%) |
+| C 미관측·이웃없음 | 50 (1.1%) | 1,347 (29.4%) |
+
+추가 외부 데이터는 **C 계층을 덮는 것만 가치가 있습니다.** View-T 혼잡시간강도는 Level6로 제공되어 C 커버리지가 1.1% → 29.4%가 되며, `data/raw/traffic/seoul_lev6_2024/seoul_link_lev6_2024.shp`의 `up_its_id`/`dw_its_id`로 `LINK_ID`에 바로 조인됩니다.
 
 전체 수치, 도로등급별 매칭률, 미매칭 링크 특성은 [data/README.md의 "Current Results"](data/README.md#current-results)를 참고하세요.
 
