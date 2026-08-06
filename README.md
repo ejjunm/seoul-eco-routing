@@ -101,7 +101,7 @@
     -> speed_kmh로 링크 통행시간 계산
 ```
 
-**주의**: `models/11`, `routing/12`, `routing/13`, `routing/15`(Model B)는 이전 T-data 기반 데이터(11,010개 링크, 17.33%)로 학습·평가됐던 코드입니다. 5분 데이터(44,960개 링크, 70.75%) 기준으로는 아직 재학습/재평가하지 않았고, 코드 안의 입력 경로도 아직 옛 병합 파일(`seoul_link_speed_dem_weather_merged.csv`, `seoul_link_model_features.csv` — 둘 다 이번 파이프라인 리팩토링으로 삭제됨)을 가리키고 있어 **현재 상태로는 그대로 실행되지 않습니다.** `data/README.md`의 새 스키마(`seoul_link_dimension.csv` + `seoul_link_speed_fact.csv`)를 가리키도록 입력 경로를 옮기는 작업이 남아있습니다. "Current Results"의 Model B 수치는 이전 버전 기준이니 재실행 전까지 참고용으로만 보세요.
+**주의**: `models/11`, `routing/12`, `routing/13`, `routing/15`(Model B)는 이전 T-data 기반 데이터(11,010개 링크, 17.33%)로 학습·평가됐던 코드라 5분 데이터(44,960개 링크, 70.75%) 기준으로는 아직 재학습/재평가하지 않았습니다. 그중 `models/11`과 `routing/13`은 코드 안의 입력 경로가 아직 옛 병합 파일(`seoul_link_speed_dem_weather_merged.csv`, `seoul_link_model_features.csv` — 둘 다 이번 파이프라인 리팩토링으로 삭제됨)을 직접 가리키고 있어 **현재 상태로는 그대로 실행되지 않습니다.** `routing/15`는 직접 삭제된 파일을 참조하진 않지만 `routing/13`의 출력(`seoul_all_link_speed_*.csv`)을 입력으로 받으므로 13이 고쳐지기 전까지는 실행할 수 없습니다. `routing/12`(전 링크 기상 스냅샷 생성)만은 예외로, `seoul_link_attr.csv`/`seoul_link_dem_features.csv`/레이더 원본만 읽어 **지금 그대로 실행 가능**합니다. `data/README.md`의 새 스키마(`seoul_link_dimension.csv` + `seoul_link_speed_fact.csv`)를 가리키도록 `models/11`·`routing/13`의 입력 경로를 옮기는 작업이 남아있습니다. "Current Results"의 Model B 수치는 이전 버전 기준이니 재실행 전까지 참고용으로만 보세요.
 
 ## Model B Features
 
@@ -213,7 +213,7 @@ python -m nbconvert --to notebook --execute --inplace notebooks\10_eda_report.ip
 python -m nbconvert --to notebook --execute --inplace notebooks\11_speed_model_baseline.ipynb
 ```
 
-`11`/`12`/`13`/`15`는 위 "주의"에서 설명한 대로 아직 입력 경로가 옛 병합 파일을 가리키고 있어 지금 그대로 실행하면 오류가 납니다 — 새 `seoul_link_dimension.csv`/`seoul_link_speed_fact.csv`로 옮기는 작업이 끝난 뒤에만 유효한 명령입니다.
+`11`/`13`/`15`는 위 "주의"에서 설명한 대로 지금 그대로 실행하면 오류가 납니다(`11`·`13`은 옛 병합 파일 직접 참조, `15`는 `13`의 출력에 의존) — 새 `seoul_link_dimension.csv`/`seoul_link_speed_fact.csv`로 옮기는 작업이 끝난 뒤에만 유효한 명령입니다. `12`는 예외로 지금도 바로 실행됩니다.
 
 가상환경을 활성화하지 않고 실행할 때:
 
