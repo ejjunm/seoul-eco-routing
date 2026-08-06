@@ -1,3 +1,13 @@
+"""KMA HSR 기반 격자 위경도 및 1시간 누적 레이더 강수량을 내려받는다.
+
+구 src/09_fetch_kma_radar.py와 로직 동일, src/pipeline/으로 위치만 이동.
+
+출력: data/raw/weather/grid/*.txt, data/raw/weather/radar/*.txt
+
+사용:
+  python src/pipeline/03_fetch_kma_radar.py --grid
+  python src/pipeline/03_fetch_kma_radar.py --from-5min-times
+"""
 from __future__ import annotations
 
 import argparse
@@ -10,8 +20,7 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 WEATHER_RAW_DIR = RAW_DATA_DIR / "weather"
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
@@ -29,12 +38,10 @@ def load_api_key() -> str:
     env_key = os.environ.get("KMA_API_KEY", "").strip()
     if env_key:
         return env_key
-
     if KMA_API_KEY_PATH.exists():
         file_key = KMA_API_KEY_PATH.read_text(encoding="utf-8").strip()
         if file_key:
             return file_key
-
     raise SystemExit(
         f"KMA API 키가 없습니다. {KMA_API_KEY_PATH} 파일을 만들거나 "
         "환경변수 KMA_API_KEY를 설정하세요."
@@ -58,7 +65,6 @@ def iter_tms(start_tm: str, end_tm: str, step_minutes: int):
         raise SystemExit("start-tm이 end-tm보다 늦습니다.")
     if step_minutes < 1:
         raise SystemExit("step-minutes는 1 이상이어야 합니다.")
-
     current = start
     while current <= end:
         yield current.strftime("%Y%m%d%H%M")
@@ -91,7 +97,6 @@ def save_text(url: str, out_path: Path, api_key: str, overwrite: bool = False) -
     if out_path.exists() and not overwrite:
         print("이미 있음:", out_path)
         return
-
     print("요청:", masked_url(url, api_key))
     text = fetch_text(url)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,31 +108,14 @@ def save_text(url: str, out_path: Path, api_key: str, overwrite: bool = False) -
 
 def fetch_grid(api_key: str, overwrite: bool = False) -> None:
     for latlon in ["lon", "lat"]:
-        url = build_url(
-            LATLON_API_URL,
-            {
-                "cmp": "HSR",
-                "latlon": latlon,
-                "disp": "A",
-                "authKey": api_key,
-            },
-        )
+        url = build_url(LATLON_API_URL, {"cmp": "HSR", "latlon": latlon, "disp": "A", "authKey": api_key})
         save_text(url, GRID_DIR / f"hsr_{latlon}.txt", api_key, overwrite=overwrite)
 
 
 def fetch_radar(api_key: str, tm: str, overwrite: bool = False) -> None:
     url = build_url(
         RADAR_API_URL,
-        {
-            "tm": validate_tm(tm),
-            "cmp": "PCPH",
-            "qcd": "MSK",
-            "obs": "ECHO",
-            "acc": "60",
-            "map": "HB",
-            "disp": "A",
-            "authKey": api_key,
-        },
+        {"tm": validate_tm(tm), "cmp": "PCPH", "qcd": "MSK", "obs": "ECHO", "acc": "60", "map": "HB", "disp": "A", "authKey": api_key},
     )
     save_text(url, RADAR_DIR / f"hsr_pcph_acc60_{tm}.txt", api_key, overwrite=overwrite)
 
@@ -144,27 +132,22 @@ def iter_5min_speed_tms():
     if not FIVEMIN_SPEED_PATH.exists():
         raise SystemExit(
             f"5분 집계 속도 파일이 없습니다: {FIVEMIN_SPEED_PATH}\n"
-            "04_aggregate_5min_speed.py를 먼저 실행하세요."
+            "src/pipeline/02_aggregate_5min_speed.py를 먼저 실행하세요."
         )
-    times = pd.read_csv(
-        FIVEMIN_SPEED_PATH, usecols=["기준일", "시간코드"], encoding="utf-8-sig",
-    ).drop_duplicates()
-    tms = {
-        speed_row_to_tm(date_value, time_code_value)
-        for date_value, time_code_value in zip(times["기준일"], times["시간코드"])
-    }
+    times = pd.read_csv(FIVEMIN_SPEED_PATH, usecols=["기준일", "시간코드"], encoding="utf-8-sig").drop_duplicates()
+    tms = {speed_row_to_tm(d, t) for d, t in zip(times["기준일"], times["시간코드"])}
     yield from sorted(tms)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="KMA HSR 기반 1시간 누적 레이더 강수량 데이터를 내려받습니다.")
-    parser.add_argument("--grid", action="store_true", help="HSR 격자 위도/경도 파일을 내려받습니다.")
-    parser.add_argument("--tm", help="레이더 기준시각. 예: 201807091620")
-    parser.add_argument("--start-tm", help="반복 다운로드 시작시각. 예: 202607070000")
-    parser.add_argument("--end-tm", help="반복 다운로드 종료시각. 예: 202607072300")
-    parser.add_argument("--step-minutes", type=int, default=60, help="반복 다운로드 간격. 기본 60분")
-    parser.add_argument("--from-5min-times", action="store_true", help="seoul_link_speed_5min_hourly.csv의 기준일/시간코드에 맞는 레이더 시각을 모두 내려받습니다.")
-    parser.add_argument("--overwrite", action="store_true", help="이미 내려받은 파일도 다시 받습니다.")
+    parser.add_argument("--grid", action="store_true")
+    parser.add_argument("--tm")
+    parser.add_argument("--start-tm")
+    parser.add_argument("--end-tm")
+    parser.add_argument("--step-minutes", type=int, default=60)
+    parser.add_argument("--from-5min-times", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
     if not args.grid and not args.tm and not (args.start_tm and args.end_tm) and not args.from_5min_times:
@@ -174,14 +157,11 @@ def main() -> None:
 
     if args.grid:
         fetch_grid(api_key, overwrite=args.overwrite)
-
     if args.tm:
         fetch_radar(api_key, args.tm, overwrite=args.overwrite)
-
     if args.start_tm and args.end_tm:
         for tm in iter_tms(args.start_tm, args.end_tm, args.step_minutes):
             fetch_radar(api_key, tm, overwrite=args.overwrite)
-
     if args.from_5min_times:
         failed_tms = []
         for tm in iter_5min_speed_tms():

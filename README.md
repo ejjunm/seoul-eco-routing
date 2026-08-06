@@ -13,20 +13,11 @@
 ```text
 .
 ├── src/
-│   ├── 01_inspect_network_schema.py
-│   ├── 02_extract_seoul_links.py
-│   ├── 03_summarize_seoul_links.py
-│   ├── 04_aggregate_5min_speed.py
-│   ├── 05_merge_5min_link_speed.py
-│   ├── 06_analyze_matched_links.py
-│   ├── 07_plot_matched_links_map.py
-│   ├── 08_add_dem_features.py
-│   ├── 09_fetch_kma_radar.py
-│   ├── 10_add_radar_precip_features.py
-│   ├── 11_evaluate_speed_model.py
-│   ├── 12_build_all_link_weather_snapshot.py
-│   ├── 13_predict_all_link_speed.py
-│   └── 14_build_link_model_features.py
+│   ├── pipeline/       # 데이터 수집·정제(ETL) — 01~05, 아래 Scripts 참고
+│   ├── models/         # 모델 학습·평가 — 11_evaluate_speed_model.py
+│   ├── routing/        # 라우팅용 다운스트림 — 12/13(전 링크 스냅샷·예측), 15(에너지 비용)
+│   └── eda/            # 정식 승격된 진단/시각화 스크립트(현재 비어있음, 필요 시 채움)
+├── experiments/        # 팀원 각자의 프로토타입·1회성 실험 코드(정식 반영 전 단계)
 ├── notebooks/
 │   ├── 10_eda_report.ipynb        # 주의: 재정비 필요, 아래 Notebooks 참고
 │   ├── 11_speed_model_baseline.ipynb  # 주의: 재정비 필요, 아래 Notebooks 참고
@@ -38,7 +29,7 @@
 │   ├── raw/
 │   │   ├── road/       # MOCT_LINK.*, MOCT_NODE.*, MULTILINK.dbf, TURNINFO.dbf
 │   │   ├── boundary/   # seoul_admin_boundary.geojson (서울 25개 자치구 경계)
-│   │   ├── traffic/    # 5분 단위 전국 교통소통 원본(202607_5Min/*.csv) 등
+│   │   ├── traffic/    # 5분 단위 전국 교통소통 원본(202607_5Min/*.csv), bus_lane/, school_zone/, speed_bump/, traffic_volume.xlsx 등
 │   │   ├── dem/        # 37608.img, 37612.img, 37705.img, 37709.img
 │   │   └── weather/    # KMA key, HSR grid, radar raw files
 │   ├── interim/        # seoul_link.*
@@ -46,11 +37,14 @@
 ├── docs/
 │   └── figures/
 │       ├── eda/       # 10번 노트북이 생성하는 보고서용 EDA 그래프
-│       └── model/     # 11번 노트북이 생성하는 속도 예측 모델 그래프
+│       ├── model/     # 11/12번 노트북이 생성하는 속도 예측 모델 그래프
+│       └── model_a/   # 12_model_a_history 노트북이 생성하는 그래프
 └── README.md
 ```
 
 `data/raw/`, `data/interim/`, `data/processed/`의 실제 데이터 파일은 대용량 원본/중간/가공 데이터이므로 Git에 올리지 않습니다. 대신 각 폴더에는 `.gitkeep`을 두어 필요한 폴더 구조만 GitHub에 표시합니다. 예외적으로 `data/raw/boundary/seoul_admin_boundary.geojson`은 크기가 작은 정적 참조 데이터라 커밋합니다(자세한 내용은 [data/README.md](data/README.md) 참고).
+
+**`experiments/`와 `notebooks/`의 차이**: `experiments/`는 파라미터를 바꿔가며 반복 실행하는 코드형 실험 하네스입니다(CLI 인자로 설정을 바꾸고, 결과를 `results.csv` 같은 구조화된 파일에 계속 append) — 사람이 읽는 서사보다 재현 가능한 실험 코드 자체가 목적입니다. `notebooks/`는 마크다운 설명·실행 로그·차트가 셀 안에 함께 있는 서술형 분석 리포트로, "왜 이 결론에 도달했는지"를 사람이 읽도록 남기는 게 목적입니다. 둘 다 `src/`(정식 반영·검증된 코드)로 승격되기 전 단계라는 공통점이 있습니다.
 
 ## Main Data
 
@@ -68,39 +62,34 @@
 
 ## Scripts
 
-`src/`의 파일명 앞 번호는 실행 순서(파이프라인 순서)를 나타냅니다.
+`src/pipeline/`의 파일명 앞 번호는 실행 순서(파이프라인 순서)를 나타냅니다. 데이터를 "링크당 1행(차원 테이블)"과 "(LINK_ID,기준일,시간코드)당 1행(팩트 테이블)"로 정규화해서 저장합니다(옛 버전은 정적 속성을 관측 행마다 중복 저장해 용량이 컸습니다) — 스키마는 [data/README.md](data/README.md) 참고.
 
 | Script | Description |
 | --- | --- |
-| `01_inspect_network_schema.py` | `MOCT_LINK.shp`의 크기, 컬럼, 좌표계 확인 |
-| `02_extract_seoul_links.py` | 서울 행정경계(25개 자치구) 기준 링크를 추출해 `seoul_link.*`, `seoul_link_attr.csv` 생성 |
-| `03_summarize_seoul_links.py` | 서울 링크 속성 기초 통계 출력 |
-| `04_aggregate_5min_speed.py` | 5분 단위 전국 교통소통 원본(하루 약 1.7억 행)에서 서울 링크만 걸러 1시간 단위로 집계 |
-| `05_merge_5min_link_speed.py` | 04번 결과를 서울 링크 속성과 결합. `source_section_id`/`source_observation_id`/`sample_weight`도 채워서 Model B 학습이 그대로 쓸 수 있게 함 |
-| `06_analyze_matched_links.py` | 매칭률, 도로등급별 커버리지, 연결 컴포넌트 분석 |
-| `07_plot_matched_links_map.py` | 매칭 링크 지도 이미지와 GeoJSON 생성 |
-| `08_add_dem_features.py` | DEM에서 링크별 고도/경사도 피처 생성(`--merge-only`로 속도 라벨만 재결합 가능) |
-| `09_fetch_kma_radar.py` | KMA HSR 격자와 1시간 누적 레이더 강수량 다운로드 |
-| `10_add_radar_precip_features.py` | 레이더 강수량을 링크·시간 기준으로 결합(`--merge-only` 지원) |
-| `11_evaluate_speed_model.py` | 원본 관측 누수를 막은 시간·공간 일반화 평가와 피처 중요도 저장 |
-| `12_build_all_link_weather_snapshot.py` | 특정 시각의 서울 전체 63,548개 링크 강수 스냅샷 생성 |
-| `13_predict_all_link_speed.py` | 관측값, 전 링크 모델, 계층적 fallback을 결합해 전체 링크 속도·통행시간 생성 |
-| `14_build_link_model_features.py` | 모든 링크에서 사용할 수 있는 노드 위상·경사 보정·조합 피처 생성 |
+| `src/pipeline/01_extract_seoul_links.py` | 서울 행정경계(25개 자치구) 기준 링크를 추출해 `seoul_link.*`, `seoul_link_attr.csv` 생성 |
+| `src/pipeline/02_aggregate_5min_speed.py` | 5분 단위 전국 교통소통 원본(하루 약 1.7억 행)에서 서울 링크만 걸러 1시간 단위로 집계 |
+| `src/pipeline/03_fetch_kma_radar.py` | KMA HSR 격자와 1시간 누적 레이더 강수량 다운로드 |
+| `src/pipeline/04_build_link_dimension.py` | DEM 고도/경사, 도로망 위상, 외부 컨텍스트(버스전용차로/스쿨존/사고다발/과속방지턱/AADT)를 전부 결합한 링크 차원 테이블(`seoul_link_dimension.csv`, 63,548행) 생성 |
+| `src/pipeline/05_build_speed_fact.py` | 레이더 강수, 시간대별 교통량을 02번 결과에 결합한 속도 팩트 테이블(`seoul_link_speed_fact.csv`, 15,094,335행) 생성 |
+| `src/models/11_evaluate_speed_model.py` | 원본 관측 누수를 막은 시간·공간 일반화 평가와 피처 중요도 저장 |
+| `src/routing/12_build_all_link_weather_snapshot.py` | 특정 시각의 서울 전체 63,548개 링크 강수 스냅샷 생성 |
+| `src/routing/13_predict_all_link_speed.py` | 관측값, 전 링크 모델, 계층적 fallback을 결합해 전체 링크 속도·통행시간 생성 |
+| `src/routing/15_add_energy_cost.py` | 13번 속도 스냅샷 + DEM 경사로 링크별 통과 에너지(ICE/EV) 계산 |
 
-이전 T-data+공식매핑 방식에서 5분 데이터 방식으로 왜 바꿨는지, 매칭 방법이 어떻게 검증됐는지는 [data/README.md의 "속도 데이터 매칭"](data/README.md#속도-데이터-매칭)에 자세히 정리되어 있습니다.
+진단·시각화(매칭률, 지도 등)는 `src/pipeline/`에 두지 않고 `notebooks/`에서 다룹니다 — 이전 T-data+공식매핑 방식에서 5분 데이터 방식으로 왜 바꿨는지, 매칭 방법이 어떻게 검증됐는지는 [data/README.md의 "속도 데이터 매칭"](data/README.md#속도-데이터-매칭)에 자세히 정리되어 있습니다.
 
 ## Pipeline
 
 현재 작업은 다음 순서로 이어집니다.
 
-1. `01~03`: 전국 표준노드링크 스키마를 확인하고 서울 행정경계와 교차하는 63,548개 링크를 추출합니다.
-2. `04~05`: 5분 단위 전국 교통소통 원본에서 서울 링크만 걸러 1시간 단위로 집계하고 링크 속성과 결합합니다(44,960개 링크, 70.75%).
-3. `06~07`: 관측 커버리지와 도로망 연결성을 분석하고 지도로 확인합니다.
-4. `08`: 링크 시작·중간·끝 고도, 고도차, signed/absolute 경사도를 생성합니다.
-5. `09~10`: 필요한 시각의 KMA 레이더를 수집하고 링크별 1시간 누적 강수량을 결합합니다.
-6. `14`: 전 링크 공통 노드 연결 구조, 경사 이상치 보정, 도로 용량 조합 피처를 생성합니다.
-7. `11`: 날짜 순차 분할과 원본 링크 GroupKFold로 시간·공간 일반화를 평가합니다.
-8. `12~13`: 원하는 시각의 전 링크 기상 스냅샷을 만든 뒤 63,548개 링크 모두의 속도와 통행시간을 생성합니다.
+1. `pipeline/01`: 전국 표준노드링크에서 서울 행정경계와 교차하는 63,548개 링크를 추출합니다.
+2. `pipeline/02`: 5분 단위 전국 교통소통 원본에서 서울 링크만 걸러 1시간 단위로 집계합니다(44,960개 링크, 70.75%).
+3. `pipeline/03`: 필요한 시각의 KMA 레이더 원본을 수집합니다.
+4. `pipeline/04`: DEM 고도/경사, 도로망 위상, 외부 컨텍스트를 전부 결합해 링크 차원 테이블을 만듭니다.
+5. `pipeline/05`: 레이더 강수·시간대별 교통량을 결합해 속도 팩트 테이블을 만듭니다.
+6. `models/11`: 날짜 순차 분할과 원본 링크 GroupKFold로 시간·공간 일반화를 평가합니다.
+7. `routing/12~13`: 원하는 시각의 전 링크 기상 스냅샷을 만든 뒤 63,548개 링크 모두의 속도와 통행시간을 생성합니다.
+8. `routing/15`: 속도 스냅샷에 DEM 경사를 결합해 링크별 에너지 비용을 계산합니다.
 
 속도 산출 우선순위는 다음과 같습니다.
 
@@ -111,7 +100,7 @@
     -> speed_kmh로 링크 통행시간 계산
 ```
 
-**주의**: `11~14`(Model B)는 이전 T-data 기반 데이터(11,010개 링크, 17.33%)로 학습·평가됐던 코드입니다. 5분 데이터(44,960개 링크, 70.75%) 기준으로는 아직 재학습/재평가하지 않았습니다 — 컬럼 구조는 `05_merge_5min_link_speed.py`가 호환되게 맞춰놨지만(`sample_weight`/`source_section_id`/`source_observation_id` 포함), 관측 커버리지가 커진 만큼 성능도 달라질 가능성이 높습니다. "Current Results"의 Model B 수치는 이전 버전 기준이니 재실행 전까지 참고용으로만 보세요.
+**주의**: `models/11`, `routing/12`, `routing/13`, `routing/15`(Model B)는 이전 T-data 기반 데이터(11,010개 링크, 17.33%)로 학습·평가됐던 코드입니다. 5분 데이터(44,960개 링크, 70.75%) 기준으로는 아직 재학습/재평가하지 않았고, 코드 안의 입력 경로도 아직 옛 병합 파일(`seoul_link_speed_dem_weather_merged.csv`, `seoul_link_model_features.csv` — 둘 다 이번 파이프라인 리팩토링으로 삭제됨)을 가리키고 있어 **현재 상태로는 그대로 실행되지 않습니다.** `data/README.md`의 새 스키마(`seoul_link_dimension.csv` + `seoul_link_speed_fact.csv`)를 가리키도록 입력 경로를 옮기는 작업이 남아있습니다. "Current Results"의 Model B 수치는 이전 버전 기준이니 재실행 전까지 참고용으로만 보세요.
 
 ## Model B Features
 
@@ -200,56 +189,48 @@ C 계층에 이웃속도 피처를 그대로 넣으면 R²가 0.454 → 0.302로
 
 ## Workflow
 
+**참고**: `src/pipeline/`은 이번 리팩토링으로 실제로 이 위치에 옮겨졌습니다. `src/models/`, `src/routing/`, `src/eda/`는 폴더만 먼저 만들어둔 상태이고, 아래 11/12/13/15는 아직 물리적으로는 예전 위치(`src/` 바로 아래)에 있습니다 — 파일 이동은 각자 작업 중인 부분과 충돌하지 않도록 팀원별로 진행합니다.
+
 ```bat
 .venv\Scripts\activate.bat
 
-python src\01_inspect_network_schema.py
-python src\02_extract_seoul_links.py
-python src\03_summarize_seoul_links.py
-python src\04_aggregate_5min_speed.py
-python src\05_merge_5min_link_speed.py
-python src\06_analyze_matched_links.py
-python src\07_plot_matched_links_map.py
-python src\08_add_dem_features.py
-python src\09_fetch_kma_radar.py --grid
-python src\09_fetch_kma_radar.py --from-5min-times
-python src\10_add_radar_precip_features.py
+python src\pipeline\01_extract_seoul_links.py
+python src\pipeline\02_aggregate_5min_speed.py
+python src\pipeline\03_fetch_kma_radar.py --grid
+python src\pipeline\03_fetch_kma_radar.py --from-5min-times
+python src\pipeline\04_build_link_dimension.py
+python src\pipeline\05_build_speed_fact.py
 
-python src\14_build_link_model_features.py
 python src\11_evaluate_speed_model.py --spatial-folds 5 --n-estimators 200
 
 # 예: 2026-07-16 08:00 서울 전 링크 예측
 python src\12_build_all_link_weather_snapshot.py --tm 202607160800
 python src\13_predict_all_link_speed.py --tm 202607160800 --train-end 20260715
+python src\15_add_energy_cost.py --tm 202607160800
 
 python -m nbconvert --to notebook --execute --inplace notebooks\10_eda_report.ipynb
 python -m nbconvert --to notebook --execute --inplace notebooks\11_speed_model_baseline.ipynb
 ```
 
-DEM과 레이더 원본 피처가 이미 생성되어 있고 속도 라벨만 다시 결합할 때는 대용량 원본을 재처리하지 않아도 됩니다.
-
-```bat
-python src\08_add_dem_features.py --merge-only
-python src\10_add_radar_precip_features.py --merge-only
-```
+`11`/`12`/`13`/`15`는 위 "주의"에서 설명한 대로 아직 입력 경로가 옛 병합 파일을 가리키고 있어 지금 그대로 실행하면 오류가 납니다 — 새 `seoul_link_dimension.csv`/`seoul_link_speed_fact.csv`로 옮기는 작업이 끝난 뒤에만 유효한 명령입니다.
 
 가상환경을 활성화하지 않고 실행할 때:
 
 ```bat
-.venv\Scripts\python.exe src\10_add_radar_precip_features.py
+.venv\Scripts\python.exe src\pipeline\05_build_speed_fact.py
 ```
 
 KMA 레이더 한 시각만 받을 때:
 
 ```bat
-python src\09_fetch_kma_radar.py --tm 202607070300
+python src\pipeline\03_fetch_kma_radar.py --tm 202607070300
 ```
 
 ## Notes
 
 - T-data API 수집 코드는 사용하지 않습니다(현재는 T-data 자체를 파이프라인에서 쓰지 않고, 5분 단위 전국 교통소통 데이터로 대체했습니다).
 - `data/raw/` 아래 원본 데이터는 직접 받은 파일이므로 코드에서 수정하지 않는 것을 원칙으로 합니다.
-- 5분 단위 원본은 하루치가 약 7GB(전국 단위)라 `04_aggregate_5min_speed.py`가 서울 링크만 걸러 1시간 단위로 압축합니다. 원본 용량 때문에 `data/raw/traffic/202607_5Min/`에는 보통 최근 받은 날짜만 남아있는데, 04번은 실행할 때마다 기존 `seoul_link_speed_5min_hourly.csv`를 읽어 지금 폴더에 없는 과거 날짜는 보존하고 폴더에 있는 날짜만 새로 반영합니다 — 새 날짜를 추가하려면 그 날짜 파일만 폴더에 넣고 04번을 다시 실행하면 됩니다.
+- 5분 단위 원본은 하루치가 약 7GB(전국 단위)라 `src/pipeline/02_aggregate_5min_speed.py`가 서울 링크만 걸러 1시간 단위로 압축합니다. 원본 용량 때문에 `data/raw/traffic/202607_5Min/`에는 보통 최근 받은 날짜만 남아있는데, 02번은 실행할 때마다 기존 `seoul_link_speed_5min_hourly.csv`를 읽어 지금 폴더에 없는 과거 날짜는 보존하고 폴더에 있는 날짜만 새로 반영합니다 — 새 날짜를 추가하려면 그 날짜 파일만 폴더에 넣고 02번을 다시 실행하면 됩니다.
 - Model B의 공간 일반화 평가는 관측 링크 일부를 통째로 제외하는 방식입니다. 실제 미관측 29.25% 링크에는 정답 속도가 없으므로 그 구간의 정확도를 직접 측정한 결과는 아닙니다.
 - 현재 전 링크 출력으로 연결된 서울 도로망의 경로탐색 입력은 만들 수 있지만, 최소시간·최소에너지 라우팅 로직 자체는 별도 단계입니다.
 - 서울 링크 추출 기준(bbox → 행정경계), 속도 데이터 매칭 방식과 그 배경, 캐시 무효화 시 주의사항 등은 모두 [data/README.md](data/README.md)에 정리되어 있습니다.

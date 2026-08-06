@@ -1,9 +1,19 @@
+"""5분 단위 전국 교통소통 원본에서 서울 링크만 걸러 1시간 단위로 집계한다.
+
+구 src/04_aggregate_5min_speed.py와 로직 동일(이미 올바른 grain — LINK_ID x
+기준일 x 시간코드 — 이라 변경 불필요), src/pipeline/으로 위치만 이동.
+
+출력: data/processed/seoul_link_speed_5min_hourly.csv
+
+사용: python src/pipeline/02_aggregate_5min_speed.py
+"""
+from __future__ import annotations
+
 from pathlib import Path
 
 import pandas as pd
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 TRAFFIC_RAW_DIR = RAW_DATA_DIR / "traffic"
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
@@ -23,27 +33,21 @@ TIME_CODE_KEY = "시간코드"
 CHUNK_SIZE = 10_000_000
 GROUP_KEYS = [FIVEMIN_LINK_KEY, DATE_KEY_RAW, TIME_CODE_KEY]
 
+USECOLS = [FIVEMIN_LINK_KEY, DATE_KEY_RAW, TIME_KEY_RAW, SPEED_KEY]
+READ_DTYPE = {FIVEMIN_LINK_KEY: str, DATE_KEY_RAW: str, TIME_KEY_RAW: str, SPEED_KEY: "float32"}
+
 
 def read_seoul_link_ids() -> set:
     seoul_links = pd.read_csv(SEOUL_LINK_ATTR_PATH, usecols=[LINK_KEY], dtype=str)
     return set(seoul_links[LINK_KEY].dropna())
 
 
-USECOLS = [FIVEMIN_LINK_KEY, DATE_KEY_RAW, TIME_KEY_RAW, SPEED_KEY]
-READ_DTYPE = {FIVEMIN_LINK_KEY: str, DATE_KEY_RAW: str, TIME_KEY_RAW: str, SPEED_KEY: "float32"}
-
-
 def aggregate_one_file(path: Path, seoul_ids: set) -> pd.DataFrame:
     """
     5분 단위 원본(전국 단위, 하루 약 1.7억 행)을 청크로 읽어 서울 링크만
-    남기고, CREATHM(HHMM)에서 시간코드(01~24, T-data와 동일 규칙:
-    00시대=01 ... 23시대=24)를 만들어 (LINKID, 기준일, 시간코드)로 평균
-    낸다. 청크마다 부분합/개수를 구해뒀다가 마지막에 합치는 방식이라
-    메모리에 원본 전체를 올리지 않는다.
-
-    사용하지 않는 ROADINSTTCD(상수값)/PASNGTIME(항상 0) 컬럼은 usecols로
-    아예 읽지 않고, PASNGSPED는 문자열이 아니라 float32로 바로 읽어
-    파싱 비용을 줄인다.
+    남기고, CREATHM(HHMM)에서 시간코드(01~24, 00시대=01 ... 23시대=24)를
+    만들어 (LINKID, 기준일, 시간코드)로 평균 낸다. 청크마다 부분합/개수를
+    구해뒀다가 마지막에 합치는 방식이라 메모리에 원본 전체를 올리지 않는다.
     """
     parts = []
     reader = pd.read_csv(

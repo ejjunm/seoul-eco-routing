@@ -42,12 +42,12 @@ ROAD_NAME, MAX_SPD, LENGTH, geometry
 
 ### 문제: bbox 기준 추출의 부정확성
 
-초기 버전(`02_extract_seoul_links.py`)은 서울을 감싸는 사각형(bbox: 경도 126.75~127.20, 위도 37.40~37.72)과 겹치는 링크를 "서울 링크"로 추출했습니다. bbox는 서울의 실제 모양(각지고 불규칙한 25개 자치구 경계)보다 넓은 사각형이라, 경기/인천 일부 링크가 서울로 잘못 포함됐습니다.
+초기 버전(`src/pipeline/01_extract_seoul_links.py`)은 서울을 감싸는 사각형(bbox: 경도 126.75~127.20, 위도 37.40~37.72)과 겹치는 링크를 "서울 링크"로 추출했습니다. bbox는 서울의 실제 모양(각지고 불규칙한 25개 자치구 경계)보다 넓은 사각형이라, 경기/인천 일부 링크가 서울로 잘못 포함됐습니다.
 
 ### 해결: 행정경계 GeoJSON + intersects
 
 - 경계 데이터: [southkorea/seoul-maps](https://github.com/southkorea/seoul-maps) 저장소의 2015년 서울 25개 자치구 경계 (`juso/2015/json/seoul_municipalities_geo.json`, `EPSG:4326`, `Polygon` 25개)
-- `02_extract_seoul_links.py`가 25개 자치구 폴리곤을 하나로 합친(`union_all()`) 뒤 `MOCT_LINK`의 좌표계로 변환하고, `intersects`로 경계와 조금이라도 겹치는 링크를 추출
+- `src/pipeline/01_extract_seoul_links.py`가 25개 자치구 폴리곤을 하나로 합친(`union_all()`) 뒤 `MOCT_LINK`의 좌표계로 변환하고, `intersects`로 경계와 조금이라도 겹치는 링크를 추출
 - `clip`을 쓰지 않는 이유: 경계선에 걸친 링크의 geometry가 잘리면 그래프 연결성이 오히려 나빠지기 때문(도로가 중간에 끊긴 것처럼 됨)
 
 ### 결과
@@ -72,14 +72,13 @@ T-data(`1시간 소통정보 (구간별).csv`)를 `LINK_ID`/`링크ID` exact mat
 
 이후 서울시가 TOPIS 내부 링크체계(서비스링크)와 표준노드링크 LINK_ID를 공식적으로 연결해주는 매핑 테이블(`서울특별시 교통소통 표준링크 매핑정보_20250306.xlsx`)을 확보해 exact match/prefix8 추정을 이 정답 매핑으로 대체했지만, 매핑률이 17.33%(11,010개 링크)에 그쳤고 연결성도 최대 컴포넌트 0.27%로 매우 낮아 다익스트라 경로탐색에 쓸 수 없었습니다. 근본 원인은 공식 매핑 테이블 자체가 TOPIS가 직접 관측(VDS 등)하는 링크만 담고 있다는 데 있어, 매칭 방법을 아무리 개선해도 이 상한을 넘을 수 없었습니다.
 
-### 현재 방식: 5분 단위 전국 교통소통 데이터 직접 매칭 (`04_aggregate_5min_speed.py`, `05_merge_5min_link_speed.py`)
+### 현재 방식: 5분 단위 전국 교통소통 데이터 직접 매칭 (`src/pipeline/02_aggregate_5min_speed.py`, `src/pipeline/05_build_speed_fact.py`)
 
 ITS 국가교통정보센터 계열에서 받은 5분 단위 전국 교통소통 원본(`data/raw/traffic/202607_5Min/YYYYMMDD_5Min.csv`, 하루 약 1.7억 행)의 `LINKID` 컬럼이 서울 표준노드링크 `LINK_ID`와 **직접 일치**한다는 것을 검증했습니다(T-data의 서비스링크처럼 별도 매핑 테이블이 필요 없음).
 
-- `04_aggregate_5min_speed.py`가 원본에서 서울 `LINK_ID`와 일치하는 행만 걸러 (LINK_ID, 기준일, 시간코드) 단위로 5분 값을 평균 내 1시간 단위로 집계합니다(`sample_count_5min` 컬럼에 시간당 몇 개의 5분 샘플이 쓰였는지 남깁니다, 최대 12).
-- `05_merge_5min_link_speed.py`는 이 결과를 서울 링크 속성과 단순 결합만 합니다 — T-data 때와 달리 1:N broadcast나 서비스링크 크로스워크가 필요 없습니다.
-- `match_method` 컬럼 값은 `5min_direct` 하나입니다.
-- 5분 데이터는 복제가 없어 원래 `mapping_copy_count`/`sample_weight` 같은 가중치 보정이 필요 없지만, Model B(`11~14`번, 아래 "누수 방지와 Model B 평가" 참고)가 그대로 동작하도록 `source_section_id=LINK_ID`, `source_observation_id=LINK_ID_기준일_시간코드`, `sample_weight=1.0`을 채워 넣습니다.
+- `src/pipeline/02_aggregate_5min_speed.py`가 원본에서 서울 `LINK_ID`와 일치하는 행만 걸러 (LINK_ID, 기준일, 시간코드) 단위로 5분 값을 평균 내 1시간 단위로 집계합니다(`sample_count_5min` 컬럼에 시간당 몇 개의 5분 샘플이 쓰였는지 남깁니다, 최대 12).
+- `src/pipeline/05_build_speed_fact.py`는 이 결과에 레이더 강수·시간대별 교통량만 결합해 `seoul_link_speed_fact.csv`(팩트 테이블)를 만듭니다 — 링크 속성처럼 시간이 지나도 안 변하는 값은 여기 안 들어가고 `src/pipeline/04_build_link_dimension.py`가 만드는 `seoul_link_dimension.csv`(차원 테이블) 쪽에 링크당 1행으로 따로 저장됩니다(옛 버전은 정적 속성을 관측 행마다 최대 336번씩 중복 저장해서 용량이 컸습니다 — 두 테이블은 `LINK_ID`로 merge해서 씁니다). T-data 때와 달리 1:N broadcast나 서비스링크 크로스워크도 필요 없습니다.
+- `match_method`(전부 `5min_direct`), `source_section_id`(=`LINK_ID`), `source_observation_id`(=`LINK_ID_기준일_시간코드`), `sample_weight`(전부 `1.0`)는 전부 상수이거나 즉시 유도 가능해서 팩트 테이블에 저장하지 않습니다 — Model B(`src/models/11_evaluate_speed_model.py`, 아래 "누수 방지와 Model B 평가" 참고)처럼 이 컬럼이 필요한 소비 스크립트가 로드 직후 한 줄로 채워 씁니다.
 
 **검증**: 같은 기간 T-data와 비교했을 때, T-data 링크ID가 우연히 현재 LINK_ID와 일치하는 부분집합(약 29.6%, exact match 가능 구간)에서 상관계수 0.94~0.97, 평균절대오차 2~3km/h로 높은 일치도를 보였습니다. 공식 매핑을 거쳐 1:N broadcast가 적용된 구간에서만 상관계수가 0.80으로 낮아졌는데, 형제 링크별로 나눠 확인한 결과 이건 5분 데이터가 부정확해서가 아니라 **T-data 공식 매핑 자체가 같은 값을 여러 형제 링크에 복제하는 근사치 한계** 때문임을 확인했습니다(5분 데이터는 형제 링크마다 실제로 다른 값을 개별 관측).
 
@@ -122,7 +121,7 @@ ITS 국가교통정보센터 계열에서 받은 5분 단위 전국 교통소통
 | dtype | `float32` |
 | nodata | `-9999` |
 
-도로 링크와 DEM의 좌표계가 다르므로 `08_add_dem_features.py`에서 링크를 `EPSG:5179`로 변환한 뒤 샘플링합니다. 링크마다 시작/25%/중간/75%/끝 5개 지점을 샘플링해 평균·최소·최대 고도와 경사도를 계산합니다.
+도로 링크와 DEM의 좌표계가 다르므로 `src/pipeline/04_build_link_dimension.py`에서 링크를 `EPSG:5179`로 변환한 뒤 샘플링합니다. 링크마다 시작/25%/중간/75%/끝 5개 지점을 샘플링해 평균·최소·최대 고도와 경사도를 계산합니다.
 
 DEM이 90m 해상도이므로 짧은 링크에서는 경사도 값이 튈 수 있습니다. 모델링 전 `LENGTH` 기준 필터링이나 경사도 이상치 처리가 필요합니다.
 
@@ -142,36 +141,32 @@ DEM이 90m 해상도이므로 짧은 링크에서는 경사도 값이 튈 수 �
 
 KMA ASCII 포맷에서 `-30000`은 레이더 관측영역 밖, `-25000`은 관측영역 안 무에코입니다. 강수 피처 생성 시 `-25000`은 `0mm`, `-30000` 이하는 결측으로 처리합니다.
 
-KMA 레이더 원본은 한 시각당 약 48MB이며, 현재 5분 속도 데이터 대상(7/7~7/20, 14일) 336개 시각 원본은 약 16GB입니다. API에 일일 다운로드 용량 제한이 있어 여러 날에 걸쳐 나눠 받아야 할 수 있습니다. `09_fetch_kma_radar.py`는 이미 받은 파일을 건너뛰는 구조라(`save_text`의 존재 확인), 같은 명령을 다음 날 다시 실행하면 자동으로 이어받습니다. 다만 "일일 한도 초과" 자체를 감지해 그 자리에서 중단하지는 않아서, 한도 초과 이후의 나머지 요청은 각각 실패로 기록됩니다(`radar_failed_tms.txt`). 이 파일은 실패 기록용이라 재실행 후 전부 성공해도 자동으로 삭제되지 않으니, 다운로드가 실제로 완료됐는지는 `radar_failed_tms.txt`가 아니라 `data/raw/weather/radar/` 안의 실제 파일 존재 여부와 크기로 확인해야 합니다.
+KMA 레이더 원본은 한 시각당 약 48MB이며, 현재 5분 속도 데이터 대상(7/7~7/20, 14일) 336개 시각 원본은 약 16GB입니다. API에 일일 다운로드 용량 제한이 있어 여러 날에 걸쳐 나눠 받아야 할 수 있습니다. `src/pipeline/03_fetch_kma_radar.py`는 이미 받은 파일을 건너뛰는 구조라(`save_text`의 존재 확인), 같은 명령을 다음 날 다시 실행하면 자동으로 이어받습니다. 다만 "일일 한도 초과" 자체를 감지해 그 자리에서 중단하지는 않아서, 한도 초과 이후의 나머지 요청은 각각 실패로 기록됩니다(`radar_failed_tms.txt`). 이 파일은 실패 기록용이라 재실행 후 전부 성공해도 자동으로 삭제되지 않으니, 다운로드가 실제로 완료됐는지는 `radar_failed_tms.txt`가 아니라 `data/raw/weather/radar/` 안의 실제 파일 존재 여부와 크기로 확인해야 합니다.
 
 ---
 
 ## Generated Outputs
 
+파이프라인 산출물은 "링크당 1행"인 **차원 테이블**과 "(LINK_ID,기준일,시간코드)당 1행"인 **팩트 테이블**로 정규화되어 있습니다(옛 버전은 정적 속성을 관측 행마다 최대 336번씩 중복 저장해 용량이 컸습니다). 진단/시각화(매칭률, 지도 등)는 `src/pipeline/`이 아니라 노트북이 만듭니다.
+
 | File | Description |
 | --- | --- |
-| `data/interim/seoul_link.*` | 서울 행정경계 기준 링크 Shapefile |
-| `data/processed/seoul_link_attr.csv` | 서울 링크 속성 테이블 |
-| `data/processed/seoul_link_speed_5min_hourly.csv` | 5분 원본을 서울 링크 기준 1시간 단위로 집계한 결과(`04_aggregate_5min_speed.py`) |
-| `data/processed/seoul_link_speed_merged.csv` | 5분 집계 속도 + 서울 링크 속성 (`match_method=5min_direct`) |
-| `data/processed/seoul_link_dem_features.csv` | 링크별 DEM 고도/경사도 피처 |
-| `data/processed/seoul_link_speed_dem_merged.csv` | 속도 + 링크 속성 + DEM |
-| `data/processed/weather_hsr_seoul_grid.npz` | 서울 bbox 주변 HSR 격자 캐시 |
+| `data/interim/seoul_link.*` | 서울 행정경계 기준 링크 Shapefile(`src/pipeline/01`) |
+| `data/processed/seoul_link_attr.csv` | 서울 링크 속성 테이블(`src/pipeline/01`) |
+| `data/processed/seoul_link_speed_5min_hourly.csv` | 5분 원본을 서울 링크 기준 1시간 단위로 집계한 결과(`src/pipeline/02`) |
+| `data/processed/weather_hsr_seoul_grid.npz` | 서울 bbox 주변 HSR 격자 캐시(`src/pipeline/03`/`05`) |
+| `data/processed/seoul_link_dem_features.csv` | 링크별 DEM 고도/경사도 피처만 담은 부분표(`src/pipeline/04`가 만들며, `src/routing/12`·`src/routing/15`가 아직 이 파일을 직접 읽어 하위 호환용으로 유지) |
+| **`data/processed/seoul_link_dimension.csv`** | **차원 테이블**(63,548행×59컬럼) — 도로속성+DEM+도로망 위상+외부컨텍스트(버스전용차로/스쿨존/사고다발/과속방지턱/AADT) 전부 결합(`src/pipeline/04`) |
 | `data/processed/link_radar_grid_mapping.csv` | 링크 중심점과 가장 가까운 HSR 격자 매핑(캐시, 아래 Notes 참고) |
-| `data/processed/seoul_link_radar_precip.csv` | 링크별 시간대 레이더 강수 피처 |
-| `data/processed/seoul_link_speed_dem_weather_merged.csv` | 최종 속도 + 링크 + DEM + 강수 결합 테이블 |
-| `data/processed/seoul_link_model_features.csv` | 서울 63,548개 링크의 노드 위상·경사 보정·조합 피처(`14_build_link_model_features.py`) |
-| `data/processed/speed_model_evaluation_enhanced.json` | Model B 시간·공간 일반화 성능, 누수 검증, 피처 중요도(`11_evaluate_speed_model.py`) |
-| `data/processed/seoul_all_link_weather_YYYYMMDDHHMM.csv` | 특정 시각의 서울 전 링크 정적 속성 + DEM + 강수 스냅샷(`12_build_all_link_weather_snapshot.py`) |
-| `data/processed/seoul_all_link_speed_YYYYMMDDHHMM.csv` | 특정 시각의 서울 전 링크 속도, 출처, 신뢰도, 통행시간(`13_predict_all_link_speed.py`) |
-| `data/processed/matched_road_rank_coverage.csv` | 도로등급별 매칭률 |
-| `data/processed/matched_graph_components.csv` | 매칭 링크 연결 컴포넌트 |
-| `data/processed/matched_link_ids.csv` | 속도 데이터와 매칭된 링크 목록 |
-| `data/processed/matched_links.geojson` | 매칭 링크 GeoJSON |
-| `data/processed/matched_links_map.png` | 매칭 링크 분포 지도 |
-| `data/processed/matched_links_map_highlight.png` | 매칭(빨강)/미매칭(파랑) 링크를 함께 표시해 미매칭 링크가 어디에 몰려있는지 보여주는 지도 |
+| **`data/processed/seoul_link_speed_fact.csv`** | **팩트 테이블**(15,094,335행) — `LINK_ID`,`기준일`,`시간코드`,`평균속도`(라벨),`sample_count_5min`,`precip_mm`,`traffic_volume_hourly`,`traffic_volume_ratio`(`src/pipeline/05`) |
+| `data/processed/speed_model_evaluation_enhanced.json` | Model B 시간·공간 일반화 성능, 누수 검증, 피처 중요도(`src/models/11_evaluate_speed_model.py` 실행 시 생성 — 입력 경로를 새 스키마로 옮기기 전까지는 아직 없음) |
+| `data/processed/seoul_all_link_weather_YYYYMMDDHHMM.csv` | 특정 시각의 서울 전 링크 정적 속성 + DEM + 강수 스냅샷(`src/routing/12_build_all_link_weather_snapshot.py`) |
+| `data/processed/seoul_all_link_speed_YYYYMMDDHHMM.csv` | 특정 시각의 서울 전 링크 속도, 출처, 신뢰도, 통행시간(`src/routing/13_predict_all_link_speed.py`) |
 | `docs/figures/eda/*.png` | `10_eda_report.ipynb`가 생성하는 GitHub/보고서용 EDA 그래프 이미지(재정비 전까지 구버전) |
-| `docs/figures/model/*.png` | `11_speed_model_baseline.ipynb`가 생성하는 속도 예측 모델 결과 그래프 이미지(재정비 전까지 구버전) |
+| `docs/figures/model/*.png` | `11_speed_model_baseline.ipynb`/`12_derived_features_lightgbm.ipynb`가 생성하는 속도 예측 모델 결과 그래프 이미지 |
+| `docs/figures/model_a/*.png` | `12_model_a_history.ipynb`(관측 링크용 이력 모델)가 생성하는 그래프 이미지 |
+
+매칭률·연결성 진단(도로등급별 매칭률, 연결 컴포넌트, 매칭 지도 등)은 더 이상 `src/pipeline/`이 만드는 공식 산출물이 아닙니다 — 이번 리팩토링에서 파이프라인 범위 밖으로 빼고, 나중에 새 EDA 노트북에서 새 스키마 기준으로 다시 만들 예정입니다(아래 "Current Results"의 관련 수치는 리팩토링 전 원본 산출물 기준으로 남겨둔 기록입니다).
 
 `data/raw/`, `data/interim/`, `data/processed/`의 실제 데이터 파일은 대용량 원본/중간/가공 데이터라 Git에 올리지 않고 `.gitkeep`만 둡니다. 예외적으로 `data/raw/boundary/seoul_admin_boundary.geojson`은 커밋합니다(위 라이선스 주의 참고).
 
@@ -179,7 +174,7 @@ KMA 레이더 원본은 한 시각당 약 48MB이며, 현재 5분 속도 데이�
 
 ## Current Results
 
-### 5분 데이터 매칭 (`04_aggregate_5min_speed.py`, `05_merge_5min_link_speed.py`)
+### 5분 데이터 매칭 (`src/pipeline/02_aggregate_5min_speed.py`, `src/pipeline/05_build_speed_fact.py`)
 
 ```text
 서울 링크 수: 63,548
@@ -202,7 +197,7 @@ KMA 레이더 원본은 한 시각당 약 48MB이며, 현재 5분 속도 데이�
 
 5분 데이터 관측 링크만으로도 최대 컴포넌트가 95.28%라 그래프 대부분이 이미 연결돼 있습니다(예전 T-data+공식매핑 방식은 0.27%뿐이라 관측 링크만으로는 경로탐색이 불가능했습니다). 그래도 관측이 없는 29.25%(18,588개)는 여전히 남아있어, Model B로 그 구간의 속도를 채워 전 링크 그래프 입력을 완성합니다. 미관측 링크에는 정답이 없으므로 아래 공간 일반화 평가를 대리 검증으로 사용합니다.
 
-도로등급별 매칭률(`matched_road_rank_coverage.csv`):
+도로등급별 매칭률(리팩토링 전 진단 스크립트 산출물 기준 기록, 새 EDA 노트북에서 재생성 예정):
 
 | ROAD_RANK | 전체 링크 수 | 매칭 링크 수 | 매칭률 |
 | --- | --- | --- | --- |
@@ -256,7 +251,7 @@ precip_mm > 0 시각 수: 148
 
 (T-data + 공식 매핑 시절) 서울시 공식 매핑은 하나의 T-data 서비스링크를 여러 표준링크로 확장할 수 있어서, 이 형제 링크들을 임의의 행 단위로 train/test에 나누면 동일한 속도 라벨이 양쪽에 들어가 성능이 실제보다 좋아지는 문제가 있었습니다. 5분 데이터는 이런 broadcast가 없지만(`source_section_id`가 항상 `LINK_ID`와 같음), 같은 링크의 다른 시간대 관측이 train/test에 나뉘어 들어가는 일반적인 시계열 유출을 막기 위해 같은 그룹분할 인프라를 그대로 재사용합니다.
 
-`11_evaluate_speed_model.py`는 다음 두 기준으로 이를 방지합니다.
+`src/models/11_evaluate_speed_model.py`는 다음 두 기준으로 이를 방지합니다.
 
 | 평가 | 분할 기준 | 의미 |
 | --- | --- | --- |
@@ -294,7 +289,7 @@ Model B는 미관측 링크에도 적용해야 하므로 전 링크 공통 피�
 
 ## 서울 전 링크 속도 생성
 
-`12_build_all_link_weather_snapshot.py`가 특정 시각의 63,548개 링크에 정적 도로·DEM·레이더 강수를 결합하고, `13_predict_all_link_speed.py`가 다음 우선순위로 최종 속도를 선택합니다.
+`src/routing/12_build_all_link_weather_snapshot.py`가 특정 시각의 63,548개 링크에 정적 도로·DEM·레이더 강수를 결합하고, `src/routing/13_predict_all_link_speed.py`가 다음 우선순위로 최종 속도를 선택합니다.
 
 1. 해당 시각에 5분 데이터 관측이 있으면 `official_observed`
 2. 전 링크 공통 피처가 정상이고 학습 범주에 포함되면 `static_model`
@@ -320,11 +315,11 @@ hierarchical_fallback: 5,547
 
 - `data/raw/` 아래 원본 데이터는 직접 받은 파일이므로 코드에서 수정하지 않는 것을 원칙으로 합니다.
 - T-data API 수집 코드는 사용하지 않습니다(현재는 T-data 자체를 파이프라인에서 쓰지 않고, 5분 단위 전국 교통소통 데이터로 대체했습니다 — "속도 데이터 매칭" 참고).
-- `data/processed/link_radar_grid_mapping.csv`와 `weather_hsr_seoul_grid.npz`는 캐시 파일입니다(`10_add_radar_precip_features.py`). `link_radar_grid_mapping.csv`는 `seoul_link_speed_dem_merged.csv`의 현재 링크 구성과 캐시된 링크 구성을 자동으로 비교해, 다르면 다시 빌드합니다 — 수동으로 지울 필요는 없습니다.
-- `seoul_link_speed_merged.csv`의 `sample_count_5min`이 낮은 행(예: 시간당 5분 샘플이 12개 중 몇 개뿐인 경우)은 그 시간대 관측이 성기다는 뜻이니, 정밀한 분석에는 참고하는 게 좋습니다.
+- `data/processed/link_radar_grid_mapping.csv`와 `weather_hsr_seoul_grid.npz`는 캐시 파일입니다(`src/pipeline/05_build_speed_fact.py`). `link_radar_grid_mapping.csv`는 대상 링크 구성이 캐시와 다르면 자동으로 다시 빌드합니다 — 수동으로 지울 필요는 없습니다.
+- `seoul_link_speed_fact.csv`의 `sample_count_5min`이 낮은 행(예: 시간당 5분 샘플이 12개 중 몇 개뿐인 경우)은 그 시간대 관측이 성기다는 뜻이니, 정밀한 분석에는 참고하는 게 좋습니다.
 - `notebooks/10_eda_report.ipynb`, `notebooks/11_speed_model_baseline.ipynb`는 T-data 시절 컬럼에 의존하고 있어 5분 데이터 기반 파이프라인에서는 재실행 시 오류가 납니다 — 재정비가 필요합니다("Current Results > Speed Feature EDA" 참고).
 - `data/raw/traffic/`의 서비스링크 보간점 정보, `seoul_lev6_2024`/`seoul_link_lev5.5_2024`/`level5.5_level6_matchingtable`, 지점별 교통량 정보(139개 지점) 파일들은 매칭 확장 가능성을 검토했던 자료로 현재 파이프라인에서는 쓰지 않습니다(5분 데이터가 이미 이들보다 넓은 커버리지를 제공).
-- Model B(`11~14`번)의 공간 일반화는 관측 링크 일부를 숨겨 미관측 링크 상황을 모사한 결과입니다. 실제 미관측 29.25%(18,588개) 링크에는 정답 속도가 없으므로 그 링크들의 오차를 직접 계산한 것은 아닙니다. 또한 "평가 결과" 수치는 아직 구 T-data 버전 기준이라 5분 데이터로 재실행하면 달라질 수 있습니다(위 "누수 방지와 Model B 평가" 참고).
+- Model B(`src/models/11`, `src/routing/12`·`13`·`15`)의 공간 일반화는 관측 링크 일부를 숨겨 미관측 링크 상황을 모사한 결과입니다. 실제 미관측 29.25%(18,588개) 링크에는 정답 속도가 없으므로 그 링크들의 오차를 직접 계산한 것은 아닙니다. 또한 "평가 결과" 수치는 아직 구 T-data 버전 기준이라 5분 데이터로 재실행하면 달라질 수 있습니다(위 "누수 방지와 Model B 평가" 참고).
 - 현재 원본은 2026-07-07~2026-07-20의 14일 데이터입니다. 계절·월·공휴일 일반화를 주장하려면 더 긴 기간의 속도·기상 데이터가 필요합니다.
 - `slope_pct`는 짧은 링크와 90m DEM 해상도 때문에 튈 수 있어 Model B에서는 원본값과 함께 클리핑값·이상치 플래그를 사용합니다.
 - 전 링크 속도와 통행시간은 준비됐지만, 에너지 비용식과 최소시간/최소에너지 경로탐색은 후속 단계입니다.
