@@ -240,14 +240,38 @@ def build_traffic_volume_aadt(seoul_ids: set) -> pd.DataFrame:
 
 
 def build_external_context(seoul_link: gpd.GeoDataFrame, seoul_ids: set) -> pd.DataFrame:
+    """외부 컨텍스트 결합. 원본이 없는 항목은 건너뛰고 무엇이 빠졌는지 알린다.
+
+    data/raw는 Git에 올리지 않으므로, 원본 일부만 받은 사람도 파이프라인을 돌려
+    나머지 피처는 얻을 수 있어야 한다. 원본이 있으면 동작은 이전과 동일하다.
+    """
     base = pd.DataFrame({"LINK_ID": seoul_link["LINK_ID"]})
-    for builder in (build_bus_lane_ratio, build_school_zone_count, build_accident_hotspot_count, build_speed_bump_count):
-        base = base.merge(builder(seoul_link), on="LINK_ID", how="left")
-    base = base.merge(build_traffic_volume_aadt(seoul_ids), on="LINK_ID", how="left")
+    skipped = []
+    sources = [
+        (BUS_LANE_SHP, "bus_lane_ratio", lambda: build_bus_lane_ratio(seoul_link)),
+        (SCHOOL_FACILITY_SHP, "school_zone_count", lambda: build_school_zone_count(seoul_link)),
+        (PEDESTRIAN_ACCIDENT_CSV, "accident_hotspot_count", lambda: build_accident_hotspot_count(seoul_link)),
+        (SPEED_BUMP_SHP, "speed_bump_count", lambda: build_speed_bump_count(seoul_link)),
+        (TRAFFIC_VOLUME_XLSX, "traffic_volume_aadt", lambda: build_traffic_volume_aadt(seoul_ids)),
+    ]
+    for path, col, builder in sources:
+        if not path.exists():
+            skipped.append((col, path))
+            continue
+        base = base.merge(builder(), on="LINK_ID", how="left")
+
     for col in ZERO_FILL_COLS:
-        base[col] = base[col].fillna(0.0).astype("float32")
+        if col in base:
+            base[col] = base[col].fillna(0.0).astype("float32")
     for col in KEEP_NA_COLS:
-        base[col] = base[col].astype("float32")  # NaN 유지
+        if col in base:
+            base[col] = base[col].astype("float32")  # NaN 유지
+
+    if skipped:
+        print("  [경고] 원본이 없어 건너뛴 외부 컨텍스트 피처:")
+        for col, path in skipped:
+            print(f"    - {col}: {path.relative_to(PROJECT_ROOT)}")
+        print("  원본을 받은 뒤 다시 실행하면 해당 컬럼이 채워집니다.")
     return base
 
 
@@ -286,9 +310,13 @@ def main() -> None:
     print("링크 수:", len(dimension), "| 컬럼 수:", len(dimension.columns))
     print("경사 이상치 링크:", int(dimension["slope_outlier_flag"].sum()))
     for col in ZERO_FILL_COLS:
+        if col not in dimension:
+            continue
         nonzero = (dimension[col] > 0).sum()
         print(f"  {col}: >0인 링크 {nonzero:,}개 ({nonzero / len(dimension) * 100:.1f}%)")
     for col in KEEP_NA_COLS:
+        if col not in dimension:
+            continue
         present = dimension[col].notna().sum()
         print(f"  {col}: 값 있는 링크 {present:,}개 ({present / len(dimension) * 100:.1f}%, 나머지는 NaN)")
 
