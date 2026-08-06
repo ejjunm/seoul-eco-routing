@@ -5,8 +5,11 @@ seoul_link_dimension.csv(63,548행)를 만든다.
 (도로망 위상) + src/16_add_link_context_features.py(버스전용차로/스쿨존/
 사고다발지역/과속방지턱/교통량 AADT, 이번 세션에 검증)를 통합한다.
 
-data/processed/seoul_link_dem_features.csv는 src/12_build_all_link_weather_snapshot.py/
-src/15_add_energy_cost.py가 직접 읽으므로 계속 별도 파일로도 저장한다.
+seoul_link_dem_features.csv는 seoul_link_dimension.csv를 만들기 위한 중간
+재료라 data/interim/에 둔다 — src/12_build_all_link_weather_snapshot.py/
+src/15_add_energy_cost.py가 아직 이 파일을 data/processed/에서 직접 읽고
+있다면, 각 스크립트를 새 dimension 테이블을 쓰도록 옮길 때 경로도 함께
+interim/으로 바꿔야 한다.
 
 bus_lane_ratio/school_zone_count/accident_hotspot_count/speed_bump_count는
 "없으면 0"이 맞다(해당 시설이 진짜 없다는 뜻). traffic_volume_aadt는
@@ -14,7 +17,7 @@ bus_lane_ratio/school_zone_count/accident_hotspot_count/speed_bump_count는
 아님) — 0으로 채우면 안 된다.
 
 출력:
-  data/processed/seoul_link_dem_features.csv (12/15번 호환용, 기존과 동일 스키마)
+  data/interim/seoul_link_dem_features.csv   (dimension을 만들기 위한 중간 재료)
   data/processed/seoul_link_dimension.csv    (도로속성+DEM+위상+외부컨텍스트 전부)
 
 사용: python src/pipeline/04_build_link_dimension.py
@@ -35,9 +38,9 @@ INTERIM_DIR = PROJECT_ROOT / "data" / "interim"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
 SEOUL_LINK_SHP = INTERIM_DIR / "seoul_link.shp"
-LINK_ATTR_PATH = PROCESSED_DIR / "seoul_link_attr.csv"
+LINK_ATTR_PATH = INTERIM_DIR / "seoul_link_attr.csv"
 DEM_RAW_DIR = RAW_DIR / "dem"
-DEM_OUT = PROCESSED_DIR / "seoul_link_dem_features.csv"
+DEM_OUT = INTERIM_DIR / "seoul_link_dem_features.csv"
 DIMENSION_OUT = PROCESSED_DIR / "seoul_link_dimension.csv"
 
 BUS_LANE_SHP = RAW_DIR / "traffic" / "bus_lane" / "bus_lane.shp"

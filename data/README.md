@@ -149,17 +149,17 @@ KMA 레이더 원본은 한 시각당 약 48MB이며, 현재 5분 속도 데이�
 
 파이프라인 산출물은 "링크당 1행"인 **차원 테이블**과 "(LINK_ID,기준일,시간코드)당 1행"인 **팩트 테이블**로 정규화되어 있습니다(옛 버전은 정적 속성을 관측 행마다 최대 336번씩 중복 저장해 용량이 컸습니다). 진단/시각화(매칭률, 지도 등)는 `src/pipeline/`이 아니라 노트북이 만듭니다.
 
-`data/interim/`과 `data/processed/`는 역할이 다릅니다 — `interim/`은 `src/pipeline/` 스크립트가 다음 단계를 위해 만드는 **중간 재료**(재실행하면 다시 생기고, 최종 소비자가 직접 읽지 않음)이고, `processed/`는 모델링·라우팅이 바로 읽는 **최종 산출물**입니다. 노트북·`experiments/`가 만드는 캐시(예: `nb12_feature_cache_v4.parquet`)는 `interim/` 바로 아래가 아니라 `data/interim/notebook_cache/`에 모아둡니다 — 파이프라인 공식 중간 재료와 뒤섞이면 뭘 지워도 되는지 구분이 안 되기 때문입니다.
+`data/interim/`과 `data/processed/`는 역할이 다릅니다 — `interim/`은 `src/pipeline/` 스크립트가 다음 단계를 위해 만드는 **중간 재료**이고, `processed/`는 모델링·라우팅이 바로 읽는 **최종 산출물**입니다. `processed/`에는 **`seoul_link_dimension.csv`와 `seoul_link_speed_fact.csv` 딱 2개만** 둡니다 — 나머지는 전부 `interim/`입니다. 노트북·`experiments/`가 만드는 캐시(예: `nb12_feature_cache_v4.parquet`)는 `interim/` 바로 아래가 아니라 `data/interim/notebook_cache/`에 모아둡니다.
 
 | File | Description |
 | --- | --- |
 | `data/interim/seoul_link.*` | 서울 행정경계 기준 링크 Shapefile(`src/pipeline/01`) |
-| `data/processed/seoul_link_attr.csv` | 서울 링크 속성 테이블(`src/pipeline/01`) |
-| `data/interim/seoul_link_speed_5min_hourly.csv` | 5분 원본을 서울 링크 기준 1시간 단위로 집계한 결과 — `src/pipeline/05`의 중간 재료일 뿐 최종 산출물이 아니라 `interim/`에 둠(`src/pipeline/02`) |
-| `data/processed/weather_hsr_seoul_grid.npz` | 서울 bbox 주변 HSR 격자 캐시(`src/pipeline/03`/`05`) |
-| `data/processed/seoul_link_dem_features.csv` | 링크별 DEM 고도/경사도 피처만 담은 부분표(`src/pipeline/04`가 만들며, `src/routing/12`·`src/routing/15`가 아직 이 파일을 직접 읽어 하위 호환용으로 유지) |
+| `data/interim/seoul_link_attr.csv` | 서울 링크 속성 테이블 — dimension을 만들기 위한 중간 재료(`src/pipeline/01`) |
+| `data/interim/seoul_link_speed_5min_hourly.csv` | 5분 원본을 서울 링크 기준 1시간 단위로 집계한 결과 — fact를 만들기 위한 중간 재료(`src/pipeline/02`) |
+| `data/interim/weather_hsr_seoul_grid.npz` | 서울 bbox 주변 HSR 격자 캐시(`src/pipeline/03`/`05`) |
+| `data/interim/seoul_link_dem_features.csv` | 링크별 DEM 고도/경사도 피처만 담은 부분표 — dimension을 만들기 위한 중간 재료(`src/pipeline/04`) |
+| `data/interim/link_radar_grid_mapping.csv` | 링크 중심점과 가장 가까운 HSR 격자 매핑(캐시, 아래 Notes 참고) |
 | **`data/processed/seoul_link_dimension.csv`** | **차원 테이블**(63,548행×59컬럼) — 도로속성+DEM+도로망 위상+외부컨텍스트(버스전용차로/스쿨존/사고다발/과속방지턱/AADT) 전부 결합(`src/pipeline/04`) |
-| `data/processed/link_radar_grid_mapping.csv` | 링크 중심점과 가장 가까운 HSR 격자 매핑(캐시, 아래 Notes 참고) |
 | **`data/processed/seoul_link_speed_fact.csv`** | **팩트 테이블**(15,094,335행) — `LINK_ID`,`기준일`,`시간코드`,`평균속도`(라벨),`sample_count_5min`,`precip_mm`,`traffic_volume_hourly`,`traffic_volume_ratio`(`src/pipeline/05`) |
 | `data/processed/speed_model_evaluation_enhanced.json` | Model B 시간·공간 일반화 성능, 누수 검증, 피처 중요도(`src/models/11_evaluate_speed_model.py` 실행 시 생성 — 입력 경로를 새 스키마로 옮기기 전까지는 아직 없음) |
 | `data/processed/seoul_all_link_weather_YYYYMMDDHHMM.csv` | 특정 시각의 서울 전 링크 정적 속성 + DEM + 강수 스냅샷(`src/routing/12_build_all_link_weather_snapshot.py`) |
@@ -167,6 +167,8 @@ KMA 레이더 원본은 한 시각당 약 48MB이며, 현재 5분 속도 데이�
 | `docs/figures/eda/*.png` | `10_eda_report.ipynb`가 생성하는 GitHub/보고서용 EDA 그래프 이미지(재정비 전까지 구버전) |
 | `docs/figures/model/*.png` | `11_speed_model_baseline.ipynb`/`12_derived_features_lightgbm.ipynb`가 생성하는 속도 예측 모델 결과 그래프 이미지 |
 | `docs/figures/model_a/*.png` | `12_model_a_history.ipynb`(관측 링크용 이력 모델)가 생성하는 그래프 이미지 |
+
+**주의**: `src/routing/12`·`src/routing/15`와 `experiments/`의 일부 스크립트(`build_official_17pct.py`, `build_structural_features.py`, `eco_routing.py`, `eco_routing_global.py`, `fill_all_speeds.py`)는 아직 `seoul_link_attr.csv`/`seoul_link_dem_features.csv`/`weather_hsr_seoul_grid.npz`/`link_radar_grid_mapping.csv`를 **`data/processed/`에서** 읽도록 경로가 박혀 있습니다. 이 파일들은 전부 `data/interim/`으로 옮겼으므로, 각 스크립트를 손볼 때 경로도 함께 `interim/`으로 바꿔야 합니다(이 리팩토링에서 함께 고치지 않음 — 각자 담당 스크립트를 옮길 때 반영).
 
 매칭률·연결성 진단(도로등급별 매칭률, 연결 컴포넌트, 매칭 지도 등)은 더 이상 `src/pipeline/`이 만드는 공식 산출물이 아닙니다 — 이번 리팩토링에서 파이프라인 범위 밖으로 빼고, 나중에 새 EDA 노트북에서 새 스키마 기준으로 다시 만들 예정입니다(아래 "Current Results"의 관련 수치는 리팩토링 전 원본 산출물 기준으로 남겨둔 기록입니다).
 
@@ -317,7 +319,7 @@ hierarchical_fallback: 5,547
 
 - `data/raw/` 아래 원본 데이터는 직접 받은 파일이므로 코드에서 수정하지 않는 것을 원칙으로 합니다.
 - T-data API 수집 코드는 사용하지 않습니다(현재는 T-data 자체를 파이프라인에서 쓰지 않고, 5분 단위 전국 교통소통 데이터로 대체했습니다 — "속도 데이터 매칭" 참고).
-- `data/processed/link_radar_grid_mapping.csv`와 `weather_hsr_seoul_grid.npz`는 캐시 파일입니다(`src/pipeline/05_build_speed_fact.py`). `link_radar_grid_mapping.csv`는 대상 링크 구성이 캐시와 다르면 자동으로 다시 빌드합니다 — 수동으로 지울 필요는 없습니다.
+- `data/interim/link_radar_grid_mapping.csv`와 `weather_hsr_seoul_grid.npz`는 캐시 파일입니다(`src/pipeline/05_build_speed_fact.py`). `link_radar_grid_mapping.csv`는 대상 링크 구성이 캐시와 다르면 자동으로 다시 빌드합니다 — 수동으로 지울 필요는 없습니다.
 - `seoul_link_speed_fact.csv`의 `sample_count_5min`이 낮은 행(예: 시간당 5분 샘플이 12개 중 몇 개뿐인 경우)은 그 시간대 관측이 성기다는 뜻이니, 정밀한 분석에는 참고하는 게 좋습니다.
 - `notebooks/10_eda_report.ipynb`, `notebooks/11_speed_model_baseline.ipynb`는 T-data 시절 컬럼에 의존하고 있어 5분 데이터 기반 파이프라인에서는 재실행 시 오류가 납니다 — 재정비가 필요합니다("Current Results > Speed Feature EDA" 참고).
 - `data/raw/traffic/`의 서비스링크 보간점 정보, `seoul_lev6_2024`/`seoul_link_lev5.5_2024`/`level5.5_level6_matchingtable`, 지점별 교통량 정보(139개 지점) 파일들은 매칭 확장 가능성을 검토했던 자료로 현재 파이프라인에서는 쓰지 않습니다(5분 데이터가 이미 이들보다 넓은 커버리지를 제공).

@@ -6,7 +6,7 @@ HIST_TYPE/HISTREMARK는 순수 메타데이터라 어떤 모델링에서도 쓰�
 
 출력:
   data/interim/seoul_link.shp        (geometry 포함, 63,548개)
-  data/processed/seoul_link_attr.csv (속성만, 04번이 dimension으로 확장)
+  data/interim/seoul_link_attr.csv   (속성만, 04번이 dimension으로 확장하는 중간 재료)
 
 사용: python src/pipeline/01_extract_seoul_links.py
 """
@@ -26,7 +26,7 @@ PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 LINK_PATH = ROAD_RAW_DIR / "MOCT_LINK.shp"
 BOUNDARY_PATH = BOUNDARY_RAW_DIR / "seoul_admin_boundary.geojson"
 OUT_SHP = INTERIM_DATA_DIR / "seoul_link.shp"
-OUT_CSV = PROCESSED_DATA_DIR / "seoul_link_attr.csv"
+OUT_CSV = INTERIM_DATA_DIR / "seoul_link_attr.csv"
 
 # 어떤 모델/노트북에서도 쓰인 적 없는 순수 메타데이터 컬럼 — dimension 테이블에 안 들어감
 DROP_META_COLS = ["UPDATEDATE", "REMARK", "HIST_TYPE", "HISTREMARK"]

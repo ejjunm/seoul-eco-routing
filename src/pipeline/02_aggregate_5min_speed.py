@@ -19,7 +19,7 @@ TRAFFIC_RAW_DIR = RAW_DATA_DIR / "traffic"
 INTERIM_DATA_DIR = PROJECT_ROOT / "data" / "interim"
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 
-SEOUL_LINK_ATTR_PATH = PROCESSED_DATA_DIR / "seoul_link_attr.csv"
+SEOUL_LINK_ATTR_PATH = INTERIM_DATA_DIR / "seoul_link_attr.csv"
 FIVEMIN_DIR = TRAFFIC_RAW_DIR / "202607_5Min"
 FIVEMIN_GLOB = "*_5Min.csv"
 OUT_CSV = INTERIM_DATA_DIR / "seoul_link_speed_5min_hourly.csv"
