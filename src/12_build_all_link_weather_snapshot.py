@@ -18,10 +18,11 @@ PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 INTERIM_DATA_DIR = PROJECT_ROOT / "data" / "interim"
 
 SEOUL_LINK_SHP = INTERIM_DATA_DIR / "seoul_link.shp"
-LINK_ATTR_PATH = PROCESSED_DATA_DIR / "seoul_link_attr.csv"
-DEM_PATH = PROCESSED_DATA_DIR / "seoul_link_dem_features.csv"
-GRID_CACHE_PATH = PROCESSED_DATA_DIR / "weather_hsr_seoul_grid.npz"
-ALL_LINK_GRID_MAP_PATH = PROCESSED_DATA_DIR / "all_link_radar_grid_mapping.csv"
+# 아래 4개는 파이프라인 중간 재료라 data/interim/에 있다(processed에는 dimension/fact만 둠).
+LINK_ATTR_PATH = INTERIM_DATA_DIR / "seoul_link_attr.csv"
+DEM_PATH = INTERIM_DATA_DIR / "seoul_link_dem_features.csv"
+GRID_CACHE_PATH = INTERIM_DATA_DIR / "weather_hsr_seoul_grid.npz"
+ALL_LINK_GRID_MAP_PATH = INTERIM_DATA_DIR / "all_link_radar_grid_mapping.csv"
 RADAR_DIR = RAW_DATA_DIR / "weather" / "radar"
 
 

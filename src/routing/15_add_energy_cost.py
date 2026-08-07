@@ -23,12 +23,12 @@
 주의: 차량 실측 자료가 없으므로 이 값은 '에너지 예측'이 아니라 '기준 차량 시뮬레이션'이다.
       계수(질량/효율 등)는 대표값이며 조정 가능하다.
 
-입력:  data/processed/seoul_all_link_speed_{tm}.csv  (13번 산출: LINK_ID, speed_kmh, LENGTH, ...)
-       data/processed/seoul_link_dem_features.csv    (slope_pct: signed 경사 %)
+입력:  data/processed/seoul_all_link_speed_{tm}.csv  (routing/13 산출: LINK_ID, speed_kmh, LENGTH, ...)
+       data/processed/seoul_link_dimension.csv       (slope_pct: signed 경사 % — 13번 산출에 없을 때만)
 출력:  data/processed/seoul_all_link_energy_{tm}.csv
 
-사용:  python src/15_add_energy_cost.py --tm 202607160800
-       python src/15_add_energy_cost.py --tm 202607160800 --load-factor 1.0   # 만차(4️⃣ 시나리오)
+사용:  python src/routing/15_add_energy_cost.py --tm 202607160800
+       python src/routing/15_add_energy_cost.py --tm 202607160800 --load-factor 1.0   # 만차(4️⃣ 시나리오)
 """
 from __future__ import annotations
 
@@ -38,9 +38,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED = PROJECT_ROOT / "data" / "processed"
-DEM_PATH = PROCESSED / "seoul_link_dem_features.csv"
+DIMENSION_PATH = PROCESSED / "seoul_link_dimension.csv"   # 경사는 차원 테이블에 링크당 1행
 
 GRAVITY = 9.81
 V_FLOOR_KMH = 3.0                 # 정체/결측 속도 하한
@@ -85,13 +85,15 @@ def main():
 
     speed_path = PROCESSED / f"seoul_all_link_speed_{args.tm}.csv"
     if not speed_path.exists():
-        raise SystemExit(f"13번 속도 스냅샷이 없습니다: {speed_path}\n먼저 src/13_predict_all_link_speed.py를 실행하세요.")
+        raise SystemExit(f"13번 속도 스냅샷이 없습니다: {speed_path}\n"
+                         f"먼저 src/routing/13_predict_all_link_speed.py를 실행하세요.")
 
     df = pd.read_csv(speed_path, dtype={"LINK_ID": str}, encoding="utf-8-sig")
-    # 13번 스냅샷에 이미 slope_pct(signed 경사)가 포함돼 있으면 그대로 사용, 없으면 DEM에서 결합
+    # 13번 스냅샷에 이미 slope_pct(signed 경사)가 포함돼 있으면 그대로 사용, 없으면 차원 테이블에서 결합
     if "slope_pct" not in df.columns:
-        dem = pd.read_csv(DEM_PATH, dtype={"LINK_ID": str}, usecols=["LINK_ID", "slope_pct"], encoding="utf-8-sig")
-        df = df.merge(dem, on="LINK_ID", how="left")
+        dim = pd.read_csv(DIMENSION_PATH, dtype={"LINK_ID": str},
+                          usecols=["LINK_ID", "slope_pct"], encoding="utf-8-sig")
+        df = df.merge(dim, on="LINK_ID", how="left")
     df["slope_pct"] = pd.to_numeric(df["slope_pct"], errors="coerce").fillna(0.0)
 
     L = df["LENGTH"].to_numpy(dtype=float)

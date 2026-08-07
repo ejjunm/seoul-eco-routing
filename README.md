@@ -74,9 +74,9 @@
 | `src/pipeline/04_build_link_dimension.py` | DEM 고도/경사, 도로망 위상, 외부 컨텍스트(버스전용차로/스쿨존/사고다발/과속방지턱/AADT)를 전부 결합한 링크 차원 테이블(`seoul_link_dimension.csv`, 63,548행) 생성 |
 | `src/pipeline/05_build_speed_fact.py` | 레이더 강수, 시간대별 교통량을 02번 결과에 결합한 속도 팩트 테이블(`seoul_link_speed_fact.csv`, 15,094,335행) 생성 |
 | `src/models/11_evaluate_speed_model.py` | 원본 관측 누수를 막은 시간·공간 일반화 평가와 피처 중요도 저장 |
-| `src/routing/12_build_all_link_weather_snapshot.py` | 특정 시각의 서울 전체 63,548개 링크 강수 스냅샷 생성 |
-| `src/routing/13_predict_all_link_speed.py` | 관측값, 전 링크 모델, 계층적 fallback을 결합해 전체 링크 속도·통행시간 생성 |
-| `src/routing/15_add_energy_cost.py` | 13번 속도 스냅샷 + DEM 경사로 링크별 통과 에너지(ICE/EV) 계산 |
+| `src/12_build_all_link_weather_snapshot.py` | 특정 시각의 서울 전체 63,548개 링크 강수 스냅샷 생성 (아직 `src/` 루트 — 담당자 이동 대기) |
+| `src/routing/13_predict_all_link_speed.py` | 관측값 → 계층별 모델(B/C) → 계층적 fallback 순으로 전체 링크 속도·통행시간 생성 |
+| `src/routing/15_add_energy_cost.py` | 13번 속도 스냅샷 + 경사로 링크별 통과 에너지(ICE/EV) 계산 |
 
 진단·시각화(매칭률, 지도 등)는 `src/pipeline/`에 두지 않고 `notebooks/`에서 다룹니다 — 이전 T-data+공식매핑 방식에서 5분 데이터 방식으로 왜 바꿨는지, 매칭 방법이 어떻게 검증됐는지는 [data/README.md의 "속도 데이터 매칭"](data/README.md#속도-데이터-매칭)에 자세히 정리되어 있습니다.
 
@@ -96,13 +96,26 @@
 속도 산출 우선순위는 다음과 같습니다.
 
 ```text
-해당 시각 5분 데이터 관측값
-    -> 관측값이 없으면 전 링크 Model B 예측
-    -> 학습에 없던 범주/피처 결측이면 계층적 fallback
+해당 시각 팩트 테이블 관측값                              (A 계층 44,960)
+    -> 1홉에 관측 이웃이 있으면  이웃속도 포함 모델        (B 계층 14,006)
+    -> 1홉에 관측 이웃이 없으면  정적 전용 모델            (C 계층  4,582)
+    -> 학습에 없던 범주/지원 표본 부족이면 계층적 fallback
     -> speed_kmh로 링크 통행시간 계산
 ```
 
-**주의**: `models/11`, `routing/12`, `routing/13`, `routing/15`(Model B)는 이전 T-data 기반 데이터(11,010개 링크, 17.33%)로 학습·평가됐던 코드라 5분 데이터(44,960개 링크, 70.75%) 기준으로는 아직 재학습/재평가하지 않았고, **넷 다 현재 상태로는 그대로 실행되지 않습니다.** `models/11`과 `routing/13`은 입력 경로가 아직 옛 병합 파일(`seoul_link_speed_dem_weather_merged.csv`, `seoul_link_model_features.csv` — 둘 다 이번 파이프라인 리팩토링으로 삭제됨)을 직접 가리킵니다. `routing/12`와 `routing/15`는 삭제된 파일을 참조하진 않지만, `seoul_link_attr.csv`/`seoul_link_dem_features.csv`/`weather_hsr_seoul_grid.npz`/`link_radar_grid_mapping.csv`를 여전히 `data/processed/`에서 읽도록 경로가 박혀 있는데 이 파일들은 전부 `data/interim/`으로 옮겨졌습니다(아래 "재료 vs 최종 산출물" 참고). `experiments/`의 `build_official_17pct.py`·`build_structural_features.py`·`eco_routing.py`·`eco_routing_global.py`·`fill_all_speeds.py`도 같은 이유로 영향을 받습니다. `data/README.md`의 새 스키마(`seoul_link_dimension.csv` + `seoul_link_speed_fact.csv`, 그리고 `interim/`으로 옮겨진 중간 재료들)를 가리키도록 입력 경로를 옮기는 작업은 각 스크립트를 맡은 사람이 진행합니다. "Current Results"의 Model B 수치는 이전 버전 기준이니 재실행 전까지 참고용으로만 보세요.
+미관측 링크에 모델을 하나만 쓰지 않고 둘로 나누는 이유는 `notebooks/13_tier_split_evaluation.ipynb`에 있습니다 — 이웃속도 피처가 B에서는 R² +0.067이지만 C에서는 **−0.178**이라, 단일 모델로 쓰면 정보가 가장 부족한 계층이 오히려 나빠집니다.
+
+**스크립트별 상태** (파이프라인 리팩토링 이후):
+
+| 스크립트 | 상태 |
+| --- | --- |
+| `12_build_all_link_weather_snapshot.py` | ✅ 실행됨 — 입력 경로를 `interim/`으로 갱신. 파일은 아직 `src/` 루트에 있어 담당자가 `src/routing/`로 옮기면 됩니다 |
+| `routing/13_predict_all_link_speed.py` | ✅ 새 스키마(dimension+fact)로 재작성 · 계층별 모델 적용 |
+| `routing/15_add_energy_cost.py` | ✅ 경사를 차원 테이블에서 읽도록 갱신 |
+| `models/11_evaluate_speed_model.py` | ❌ 미이전 — 삭제된 `seoul_link_speed_dem_weather_merged.csv`를 직접 가리킵니다. 파일도 아직 `src/` 루트에 있습니다 |
+| `experiments/*` | ❌ 미이전 — `build_official_17pct.py`, `build_structural_features.py`, `eco_routing.py`, `eco_routing_global.py`, `fill_all_speeds.py`가 옛 경로를 참조합니다 |
+
+`13`의 학습 데이터는 `seoul_link_speed_fact.csv`(관측 라벨·강수)와 `seoul_link_dimension.csv`(정적 속성)를 `LINK_ID`로 merge해서 만듭니다. `sample_weight`/`source_section_id`는 5분 데이터에서 각각 상수 1.0과 `LINK_ID`라 팩트 테이블에 저장하지 않으므로 코드에서 쓰지 않습니다. "Current Results"의 Model B 수치는 이전 T-data 버전 기준이니 재실행 전까지 참고용으로만 보세요.
 
 ## Model B Features
 
