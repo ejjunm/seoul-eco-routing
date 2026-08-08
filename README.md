@@ -69,10 +69,12 @@
 | Script | Description |
 | --- | --- |
 | `src/pipeline/01_extract_seoul_links.py` | 서울 행정경계(25개 자치구) 기준 링크를 추출해 `seoul_link.*`, `seoul_link_attr.csv` 생성 |
-| `src/pipeline/02_aggregate_5min_speed.py` | 5분 단위 전국 교통소통 원본(하루 약 1.7억 행)에서 서울 링크만 걸러 1시간 단위로 집계 |
+| `src/pipeline/02_aggregate_5min_speed.py` | 5분 단위 전국 교통소통 원본(하루 약 1.7억 행)에서 서울 링크만 걸러 1시간 단위로 집계. Polars 기반의 멀티쓰레딩 지연 연산을 통해 대용량 데이터를 고속 처리하며, 기존 데이터는 보존하고 새 데이터만 점진적으로 업데이트하는 멱등성이 내장되어 있습니다. |
+| `experiments/verify_02_aggregate.py` | `02_aggregate_5min_speed.py` 등의 파이프라인 스크립트가 생성한 집계 데이터 파일(`seoul_link_speed_5min_hourly.csv`, `seoul_link_dimension.csv`, `seoul_link_speed_fact.csv`)의 무결성을 검증합니다. 저장된 고유 날짜를 확인하고, 기본 키(LINK_ID, 기준일, 시간코드) 기준 중복 데이터 존재 여부를 검사합니다. |
 | `src/pipeline/03_fetch_kma_radar.py` | KMA HSR 격자와 1시간 누적 레이더 강수량 다운로드 |
 | `src/pipeline/04_build_link_dimension.py` | DEM 고도/경사, 도로망 위상, 외부 컨텍스트(버스전용차로/스쿨존/사고다발/과속방지턱/AADT)를 전부 결합한 링크 차원 테이블(`seoul_link_dimension.csv`, 63,548행) 생성 |
 | `src/pipeline/05_build_speed_fact.py` | 레이더 강수, 시간대별 교통량을 02번 결과에 결합한 속도 팩트 테이블(`seoul_link_speed_fact.csv`, 15,094,335행) 생성 |
+| `src/eda/visualize_traffic_map.py` | Folium 및 PyDeck 기반의 인터랙티브 공간 시각화 엔진으로, 정적 지도(PNG)의 한계를 극복하고 Streamlit 대시보드와 100% 호환됩니다. 예측/기상 지도를 생성하거나 맵 객체를 반환하며, 컬럼 변경에 동적으로 대응하는 '지능형 변수 감지 구조'를 갖추고 있습니다. |
 | `src/models/11_evaluate_speed_model.py` | 원본 관측 누수를 막은 시간·공간 일반화 평가와 피처 중요도 저장 |
 | `src/12_build_all_link_weather_snapshot.py` | 특정 시각의 서울 전체 63,548개 링크 강수 스냅샷 생성 (아직 `src/` 루트 — 담당자 이동 대기) |
 | `src/routing/13_predict_all_link_speed.py` | 관측값 → 계층별 모델(B/C) → 계층적 fallback 순으로 전체 링크 속도·통행시간 생성 |
