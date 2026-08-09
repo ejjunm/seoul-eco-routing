@@ -12,11 +12,13 @@
 
 ```text
 .
+├── app/
+│   └── main.py         # Streamlit 기반 인터랙티브 대시보드 앱
 ├── src/
 │   ├── pipeline/       # 데이터 수집·정제(ETL) — 01~05, 아래 Scripts 참고
 │   ├── models/         # 모델 학습·평가 — 11_evaluate_speed_model.py
 │   ├── routing/        # 라우팅용 다운스트림 — 12/13(전 링크 스냅샷·예측), 15(에너지 비용)
-│   └── eda/            # 정식 승격된 진단/시각화 스크립트(현재 비어있음, 필요 시 채움)
+│   └── eda/            # 정식 승격된 진단/시각화 스크립트, maps.py (동적 지도 시각화/스냅샷 자동화)
 ├── experiments/        # 팀원 각자의 프로토타입·1회성 실험 코드(정식 반영 전 단계)
 ├── notebooks/
 │   ├── 10_eda_report.ipynb        # 주의: 재정비 필요, 아래 Notebooks 참고
@@ -35,7 +37,7 @@
 │   ├── interim/        # pipeline 중간 산출물(seoul_link.*, seoul_link_attr.csv, seoul_link_dem_features.csv,
 │   │   │                 seoul_link_speed_5min_hourly.csv, weather_hsr_seoul_grid.npz, link_radar_grid_mapping.csv)
 │   │   └── notebook_cache/  # 노트북·experiments 전용 캐시(재실행하면 다시 생김, 자유롭게 삭제 가능)
-│   └── processed/      # seoul_link_dimension.csv, seoul_link_speed_fact.csv — 이 2개만
+│   └── processed/      # seoul_link_dimension.csv, seoul_link_speed_fact.csv, seoul_all_link_eco_snapshot_{tm}.csv
 ├── docs/
 │   └── figures/
 │       ├── eda/       # 10번 노트북이 생성하는 보고서용 EDA 그래프
@@ -69,14 +71,16 @@
 | Script | Description |
 | --- | --- |
 | `src/pipeline/01_extract_seoul_links.py` | 서울 행정경계(25개 자치구) 기준 링크를 추출해 `seoul_link.*`, `seoul_link_attr.csv` 생성 |
-| `src/pipeline/02_aggregate_5min_speed.py` | 5분 단위 전국 교통소통 원본(하루 약 1.7억 행)에서 서울 링크만 걸러 1시간 단위로 집계 |
+| `src/pipeline/02_aggregate_5min_speed.py` | 5분 단위 전국 교통소통 원본(하루 약 1.7억 행)에서 서울 링크만 걸러 1시간 단위로 집계. Polars 기반의 멀티스레딩 지연 연산을 통해 대용량 데이터를 고속 처리하며, 기존 데이터는 보존하고 새 데이터만 점진적으로 업데이트하는 멱등성이 내장 |
 | `src/pipeline/03_fetch_kma_radar.py` | KMA HSR 격자와 1시간 누적 레이더 강수량 다운로드 |
 | `src/pipeline/04_build_link_dimension.py` | DEM 고도/경사, 도로망 위상, 외부 컨텍스트(버스전용차로/스쿨존/사고다발/과속방지턱/AADT)를 전부 결합한 링크 차원 테이블(`seoul_link_dimension.csv`, 63,548행) 생성 |
 | `src/pipeline/05_build_speed_fact.py` | 레이더 강수, 시간대별 교통량을 02번 결과에 결합한 속도 팩트 테이블(`seoul_link_speed_fact.csv`, 15,094,335행) 생성 |
+| `src/eda/maps.py` | 기존 정적 PNG 지도의 한계를 극복하기 위해 시각화 엔진과 데이터 연산 역할 분리. Folium(2D) 및 PyDeck(3D) 동적 지도 지원, 분위수 기반 지능형 색상 매핑(get_color_scheme), 시각화용 12/13/15번 순차 자동 실행 파이프라인(prepare_visualization_data)을 통해 최종 결합 스냅샷(seoul_all_link_eco_snapshot_{tm}.csv)을 생성 |
 | `src/models/11_evaluate_speed_model.py` | 원본 관측 누수를 막은 시간·공간 일반화 평가와 피처 중요도 저장 |
 | `src/12_build_all_link_weather_snapshot.py` | 특정 시각의 서울 전체 63,548개 링크 강수 스냅샷 생성 (아직 `src/` 루트 — 담당자 이동 대기) |
 | `src/routing/13_predict_all_link_speed.py` | 관측값 → 계층별 모델(B/C) → 계층적 fallback 순으로 전체 링크 속도·통행시간 생성 |
 | `src/routing/15_add_energy_cost.py` | 13번 속도 스냅샷 + 경사로 링크별 통과 에너지(ICE/EV) 계산 |
+| `app/main.py` | Streamlit 대시보드 구축 및 동적 UI 제어: maps.py가 사전 연산한 스냅샷을 활용한 실시간 대시보드. 컨트롤 패널(날짜/시간/기준변수 선택), 3D PyDeck 탭(경사도 Z축 렌더링), 2D Folium 탭(도로 클릭 시 툴팁 상세 속성 조회), 다중 속성 테이블 탐색기(도로명 필터링) 제공 |
 
 진단·시각화(매칭률, 지도 등)는 `src/pipeline/`에 두지 않고 `notebooks/`에서 다룹니다 — 이전 T-data+공식매핑 방식에서 5분 데이터 방식으로 왜 바꿨는지, 매칭 방법이 어떻게 검증됐는지는 [data/README.md의 "속도 데이터 매칭"](data/README.md#속도-데이터-매칭)에 자세히 정리되어 있습니다.
 
@@ -104,6 +108,7 @@
 ```
 
 미관측 링크에 모델을 하나만 쓰지 않고 둘로 나누는 이유는 `notebooks/13_tier_split_evaluation.ipynb`에 있습니다 — 이웃속도 피처가 B에서는 R² +0.067이지만 C에서는 **−0.178**이라, 단일 모델로 쓰면 정보가 가장 부족한 계층이 오히려 나빠집니다.
+
 
 **스크립트별 상태** (파이프라인 리팩토링 이후):
 
@@ -160,6 +165,35 @@ python -m nbconvert --to notebook --execute --inplace notebooks\13_tier_split_ev
 ```
 
 `13_tier_split_evaluation.ipynb`는 15.1M행을 6번 학습해서 약 15분 걸립니다. 빠르게 확인만 하려면 설정 셀의 `SAMPLE_FRAC`을 `0.15`로 낮추면 5분 안에 끝나며 결론은 동일합니다. 실행 시 `data/interim/nb13_feature_cache.parquet`(피처 캐시)와 `nb13_results.csv`(폴드별 원시 결과)가 생성되며, 둘 다 이 노트북 전용 산출물이라 공식 파이프라인 목록에는 포함되지 않습니다.
+
+
+## Streamlit 시각화 Pipeline
+```
+# Step 1: 기본 데이터 수집 및 팩트/차원 테이블 빌드
+python src/pipeline/01_extract_seoul_links.py
+python src/pipeline/02_aggregate_5min_speed.py
+python src/pipeline/03_fetch_kma_radar.py
+python src/pipeline/04_build_link_dimension.py
+python src/pipeline/05_build_speed_fact.py
+
+# Step 2: 시각화용 에코 스냅샷 일괄 생성 (maps.py 실행)
+python -m src.eda.maps
+
+# Step 3: Streamlit 대시보드 구동
+streamlit run app/main.py
+```
+
+## Streamlit 기능 요약
+- **원하는 분석 조건 즉시 변경 (단일화된 컨트롤 패널)**
+    - 왼쪽 사이드바에서 분석하고 싶은 '날짜'와 '시간'을 고르고, 지도에 색상으로 표현할 '기준 변수(속도, 연료소모량, 강수량 등)'를 선택하면 즉시 맵 화면이 그에 맞게 업데이트됩니다
+- **입체적인 지형 및 혼잡 관제 (3D PyDeck 탭)**
+    - 도로의 실제 경사도(`slope_pct`)를 Z축(높이)으로 띄웁니다
+    - 이를 통해 어느 도로가 급격한 오르막/내리막인지 입체적으로 보면서 선택한 변수(예: 속도, 에너지 소모)를 직관적으로 분석할 수 있습니다
+- **정밀한 도로 속성 조회 (2D Folium 탭)**
+    - 지도 위의 특정 도로 선분을 마우스로 클릭하면, 해당 도로의 어린이보호구역 유무, 교차로 복잡도, 차로 수 등 10여 가지가 넘는 세부 환경 변수 정보를 팝업 툴팁으로 바로 확인할 수 있습니다
+- **특정 도로명 검색 및 전체 데이터 표 확인 (다중 속성 테이블 탐색기)**
+    - 지도 아래의 표에서 시각화된 전체 도로 데이터를 한눈에 엑셀처럼 볼 수 있습니다
+    - 검색창에 '종로', '세종대로' 등을 입력해 원하는 도로의 수치만 빠르게 필터링해 찾아보는 것도 가능합니다
 
 ## Current Results (요약)
 
