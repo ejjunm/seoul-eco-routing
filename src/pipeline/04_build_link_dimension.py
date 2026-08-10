@@ -3,7 +3,8 @@ seoul_link_dimension.csv(63,548행)를 만든다.
 
 구 src/08_add_dem_features.py(DEM 샘플링) + src/14_build_link_model_features.py
 (도로망 위상) + src/16_add_link_context_features.py(버스전용차로/스쿨존/
-사고다발지역/과속방지턱/교통량 AADT, 이번 세션에 검증)를 통합한다.
+사고다발지역/과속방지턱/교통량 AADT) + notebooks/12 9차(View-T Level5.5
+실측 평균속도/혼잡지표, 이번에 파이프라인으로 이관)를 통합한다.
 
 seoul_link_dem_features.csv는 seoul_link_dimension.csv를 만들기 위한 중간
 재료라 data/interim/에 둔다 — src/12_build_all_link_weather_snapshot.py/
@@ -12,9 +13,16 @@ src/15_add_energy_cost.py가 아직 이 파일을 data/processed/에서 직접 �
 interim/으로 바꿔야 한다.
 
 bus_lane_ratio/school_zone_count/accident_hotspot_count/speed_bump_count는
-"없으면 0"이 맞다(해당 시설이 진짜 없다는 뜻). traffic_volume_aadt는
-"없으면 NaN"이 맞다(KOTI 조사 대상이 아니었을 뿐 실제 교통량이 0이라는 뜻이
-아님) — 0으로 채우면 안 된다.
+"없으면 0"이 맞다(해당 시설이 진짜 없다는 뜻). traffic_volume_aadt와
+View-T 계열(annual_avg_speed/evening_peak_speed/avg_speed_h0~23/
+congest_freq/congest_time/congest_expect)은 "없으면 NaN"이 맞다(조사
+대상이 아니었을 뿐 실제 값이 0이라는 뜻이 아님, View-T는 Level5.5
+약 28%만 커버) — 0으로 채우면 안 된다.
+
+data/raw/traffic/의 "통계지역경계(집계구_shp, 2016)"과
+"전국교통사고다발지역표준데이터.csv"는 어디서도 안 쓰인다 — 인구 CSV에
+행정동코드가 이미 있어 집계구 경계가 불필요했고, accident_hotspot_count는
+pedestrian_accident_2019_2024.csv로 이미 충분해 표준데이터가 중복이었다.
 
 출력:
   data/interim/seoul_link_dem_features.csv   (dimension을 만들기 위한 중간 재료)
@@ -48,11 +56,15 @@ SCHOOL_FACILITY_SHP = RAW_DIR / "traffic" / "school_zone" / "school_zone.shp"
 PEDESTRIAN_ACCIDENT_CSV = RAW_DIR / "traffic" / "pedestrian_accident_2019_2024.csv"
 SPEED_BUMP_SHP = RAW_DIR / "traffic" / "speed_bump" / "speed_bump.shp"
 TRAFFIC_VOLUME_XLSX = RAW_DIR / "traffic" / "traffic_volume.xlsx"
+AVG_SPEED_XLSX = RAW_DIR / "traffic" / "AverageSpeed(LINK).xlsx"
+CONGEST_INDEX_XLSX = RAW_DIR / "traffic" / "CongestIndex(LINK).xlsx"
 
 SAMPLE_POSITIONS = [0.0, 0.25, 0.5, 0.75, 1.0]
 SCHOOL_TARGET_TYPES = ["유치원", "초등학교", "어린이집", "초교", "특수학교"]
 ZERO_FILL_COLS = ["bus_lane_ratio", "school_zone_count", "accident_hotspot_count", "speed_bump_count"]
-KEEP_NA_COLS = ["traffic_volume_aadt"]
+# View-T(AverageSpeed/CongestIndex)는 Level5.5(약 28%) 링크만 커버 — traffic_volume_aadt와 같은 이유로 0이 아니라 NaN 유지
+KEEP_NA_COLS = ["traffic_volume_aadt", "annual_avg_speed", "evening_peak_speed", "congest_freq", "congest_time", "congest_expect"]
+AVG_SPEED_HOURLY_COLS = [f"avg_speed_h{h}" for h in range(24)]
 
 
 # ---------- 1. DEM (구 08) ----------
@@ -225,6 +237,57 @@ def build_speed_bump_count(seoul_link: gpd.GeoDataFrame) -> pd.DataFrame:
     return out
 
 
+def _explode_its_link_id(frame: pd.DataFrame, seoul_ids: set) -> pd.DataFrame:
+    """ITS_LINK_ID(콤마로 여러 LINK_ID 묶임)를 행으로 펼쳐 서울 링크만 남긴다. traffic_volume/View-T가 공유하는 매칭 방식."""
+    frame = frame.copy()
+    frame["its_id_list"] = frame["ITS_LINK_ID"].astype(str).str.split(",")
+    exp = frame.explode("its_id_list")
+    exp["LINK_ID"] = exp["its_id_list"].str.strip()
+    return exp[(exp["LINK_ID"] != "0") & exp["LINK_ID"].isin(seoul_ids)]
+
+
+def build_viewt_avg_speed(seoul_ids: set) -> pd.DataFrame:
+    """View-T Level5.5 실측 평균속도(연간/저녁첨두/시간대별). notebooks/12 9차와 동일 원본·로직."""
+    cols = (["LEVEL55_LINK_ID", "ITS_LINK_ID", "road_rank_as", "road_name_as", "region_as",
+             "length_km_as", "lanes_as", "annual_avg_speed", "evening_peak_speed"]
+            + [f"speed_h{h}" for h in range(24)])
+    raw = pd.read_excel(AVG_SPEED_XLSX, sheet_name="Sheet0", header=None, skiprows=7).iloc[:, :33]
+    raw.columns = cols
+    for col in ["annual_avg_speed", "evening_peak_speed"] + [f"speed_h{h}" for h in range(24)]:
+        raw[col] = pd.to_numeric(raw[col], errors="coerce")
+    exp = _explode_its_link_id(raw, seoul_ids)
+
+    summary = exp.groupby("LINK_ID", as_index=False)[["annual_avg_speed", "evening_peak_speed"]].mean()
+
+    hourly = exp.melt(id_vars="LINK_ID", value_vars=[f"speed_h{h}" for h in range(24)],
+                       var_name="hcol", value_name="speed")
+    hourly["h"] = hourly["hcol"].str.replace("speed_h", "", regex=False).astype(int)
+    hourly = hourly.groupby(["LINK_ID", "h"], as_index=False)["speed"].mean()
+    hourly_wide = hourly.pivot(index="LINK_ID", columns="h", values="speed")
+    hourly_wide.columns = [f"avg_speed_h{h}" for h in hourly_wide.columns]
+    hourly_wide = hourly_wide.reset_index()
+
+    out = summary.merge(hourly_wide, on="LINK_ID", how="outer")
+    for col in ["annual_avg_speed", "evening_peak_speed"] + AVG_SPEED_HOURLY_COLS:
+        out[col] = out[col].astype("float32")
+    return out
+
+
+def build_viewt_congest(seoul_ids: set) -> pd.DataFrame:
+    """View-T Level5.5 혼잡빈도/시간/기대강도. notebooks/12 9차와 동일 원본·로직."""
+    cols = ["LEVEL55_LINK_ID", "ITS_LINK_ID", "road_rank_ci", "road_name_ci", "region_ci",
+            "length_km_ci", "lanes_ci", "congest_freq", "congest_time", "congest_expect"]
+    raw = pd.read_excel(CONGEST_INDEX_XLSX, sheet_name="Sheet0", header=6, skiprows=[7])
+    raw.columns = cols
+    for col in ["congest_freq", "congest_time", "congest_expect"]:
+        raw[col] = pd.to_numeric(raw[col], errors="coerce")
+    exp = _explode_its_link_id(raw, seoul_ids)
+    out = exp.groupby("LINK_ID", as_index=False)[["congest_freq", "congest_time", "congest_expect"]].mean()
+    for col in ["congest_freq", "congest_time", "congest_expect"]:
+        out[col] = out[col].astype("float32")
+    return out
+
+
 def build_traffic_volume_aadt(seoul_ids: set) -> pd.DataFrame:
     tv_col_names = [
         "LEVEL55_LINK_ID", "ITS_LINK_ID", "road_rank_tv", "road_name_tv", "region_tv",
@@ -253,6 +316,8 @@ def build_external_context(seoul_link: gpd.GeoDataFrame, seoul_ids: set) -> pd.D
         (PEDESTRIAN_ACCIDENT_CSV, "accident_hotspot_count", lambda: build_accident_hotspot_count(seoul_link)),
         (SPEED_BUMP_SHP, "speed_bump_count", lambda: build_speed_bump_count(seoul_link)),
         (TRAFFIC_VOLUME_XLSX, "traffic_volume_aadt", lambda: build_traffic_volume_aadt(seoul_ids)),
+        (AVG_SPEED_XLSX, "annual_avg_speed 등(View-T 평균속도, 27개)", lambda: build_viewt_avg_speed(seoul_ids)),
+        (CONGEST_INDEX_XLSX, "congest_freq 등(View-T 혼잡지표, 3개)", lambda: build_viewt_congest(seoul_ids)),
     ]
     for path, col, builder in sources:
         if not path.exists():
@@ -294,7 +359,7 @@ def main() -> None:
     print("[2/4] 도로망 위상 계산 중...")
     topology = build_topology_features(attr_dem)
 
-    print("[3/4] 외부 컨텍스트(버스전용차로/스쿨존/사고다발지역/과속방지턱/교통량) 결합 중...")
+    print("[3/4] 외부 컨텍스트(버스전용차로/스쿨존/사고다발지역/과속방지턱/교통량/View-T) 결합 중...")
     context = build_external_context(seoul_link, seoul_ids)
 
     print("[4/4] 전부 결합...")
