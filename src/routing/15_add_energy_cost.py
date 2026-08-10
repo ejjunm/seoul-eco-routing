@@ -1,34 +1,43 @@
-"""
-15. 링크별 에너지 비용 계산 (Stage 2: 속도 -> 에너지)
+"""15. 링크별 에너지 비용 계산 (Stage 2: 속도 -> 에너지)
 
-13번(전 링크 속도 스냅샷)의 결과에 DEM 경사를 결합해, 링크를 통과할 때의
-'통과 에너지'를 물리(도로하중) 모델로 계산한다. 내연기관(ICE)과 전기차(EV)를
-모두 산출한다.
+13번(전 링크 속도 스냅샷)의 결과에 DEM 경사를 결합해, 링크를 통과할 때의 배터리
+소비 에너지를 계산한다. 전기차(BEV) 기준이다.
 
-에너지 모델 (거리기반 도로하중, CMEM 계열):
-  E[J] = L * ( P_aux/(eta*v) + (m*g*Cr + 0.5*rho*Cd*A*v^2 + m*g*sinθ) / eta )  (+ EV 회생)
+에너지 모델: VT-CPEM (Virginia Tech Comprehensive Power-based Electric vehicle Model)
+    Fiori, C., Ahn, K., & Rakha, H. A. (2016). "Power-based electric vehicle energy
+    consumption model: Model development and validation." Applied Energy, 168, 257-268.
 
-  - P_aux/(eta*v) : 공회전/보조장치 전력(시간 비례 -> 거리로는 /v)
-  - m*g*Cr        : 구름저항
-  - 0.5*rho*Cd*A*v^2 : 공기저항
-  - m*g*sinθ      : 중력(경사) — signed. 오르막(+)은 소비, 내리막(-)은 저항을 상쇄
-  * 팀 초안의 순간파워형 Y=L*(a+bv+cv^3+dv*sinθ)은 링크길이 곱 시 v배 과대평가 -> 거리기반형 사용.
+VT-CPEM 원형은 연속 시간 t에 대한 순간 모델이지만, 우리는 (링크 l, 시간대 t) 단위로
+근사 적용한다. 링크 단위에서는 초 단위 감속도 a(t)를 알 수 없으므로 a=0(정속 통과)으로
+둔다 — 이 가정의 결과는 아래 '회생제동' 항목 참고.
 
-경사(내리막) 처리 — 명관 개선안 반영:
-  - 오르막/내리막을 분리(signed slope). 내리막을 단순 음수로 두지 않는다.
-  - ICE: 내리막 여유 에너지를 회수하지 못함(회생 0) -> 통과에너지 = 공회전(보조) 에너지 하한.
-  - EV : 내리막 저항 상쇄분을 회생효율(eta_regen)로 일부 회수. 단 전체 에너지는 보조전력 하한 이상으로 클리핑
-         -> 경로탐색(Dijkstra)에 필요한 '비음수' 비용 보장.
+    u      = v_hat / 3.6                                      [m/s]  링크 통과 속도
+    dt     = L / u                                            [s]    링크 통과 시간
+    C_rr(u)= 1.75e-3 * (0.0328*u + 4.575)                            속도 의존 구름저항계수
+    P_W    = [ m*g*C_rr(u)*cos(th) + m*g*sin(th)
+               + 0.5*rho*C_D*A_f*u^2 ] * u                    [W]    바퀴 요구 동력
+    E      = ( max(P_W,0)/(eta_D*eta_EM*eta_B) + P_A ) * dt   [J]    배터리 소비 에너지
 
-주의: 차량 실측 자료가 없으므로 이 값은 '에너지 예측'이 아니라 '기준 차량 시뮬레이션'이다.
-      계수(질량/효율 등)는 대표값이며 조정 가능하다.
+회생제동(--regen):
+    VT-CPEM 원식은 P_W < 0 구간에서 P_W * eta_D*eta_EM*eta_B * eta_rb 로 에너지를
+    회수하며, eta_rb = 1/exp(alpha/|a|), alpha = 0.0411 (Fiori et al. 2016 캘리브레이션).
+    이 식은 감속도 |a|를 요구하는데 링크 단위에서는 알 수 없다. --regen을 주면 도심
+    대표 감속도(--regen-decel, 기본 0.5 m/s^2)를 대입해 eta_rb를 상수로 만들어 적용한다.
 
-입력:  data/processed/seoul_all_link_speed_{tm}.csv  (routing/13 산출: LINK_ID, speed_kmh, LENGTH, ...)
-       data/processed/seoul_link_dimension.csv       (slope_pct: signed 경사 % — 13번 산출에 없을 때만)
+    회생을 끄면(기본값) 내리막에서 회수가 0이라 내리막 링크가 평지와 같아진다. 경사가
+    에코라우팅의 주된 이득원이므로, 두 설정을 모두 돌려 경로 결과가 달라지는지 확인할 것.
+
+    주의: 다익스트라는 간선 비용이 음수면 쓸 수 없다. 회생 적용 시 급내리막에서 E가
+    음수가 될 수 있어 0으로 클리핑한다(그 링크에서 실제로는 순회수가 일어나지만,
+    경로탐색을 위해 '이득 없음'으로 보수적으로 처리).
+
+입력:  data/processed/seoul_all_link_speed_{tm}.csv  (routing/13 산출)
+       data/processed/seoul_link_dimension.csv       (slope_pct — 13번 산출에 없을 때만)
 출력:  data/processed/seoul_all_link_energy_{tm}.csv
 
 사용:  python src/routing/15_add_energy_cost.py --tm 202607160800
-       python src/routing/15_add_energy_cost.py --tm 202607160800 --load-factor 1.0   # 만차(4️⃣ 시나리오)
+       python src/routing/15_add_energy_cost.py --tm 202607160800 --regen
+       python src/routing/15_add_energy_cost.py --tm 202607160800 --load-factor 1.0
 """
 from __future__ import annotations
 
@@ -40,40 +49,75 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED = PROJECT_ROOT / "data" / "processed"
-DIMENSION_PATH = PROCESSED / "seoul_link_dimension.csv"   # 경사는 차원 테이블에 링크당 1행
+DIMENSION_PATH = PROCESSED / "seoul_link_dimension.csv"
 
-GRAVITY = 9.81
-V_FLOOR_KMH = 3.0                 # 정체/결측 속도 하한
-GASOLINE_J_PER_L = 34.2e6         # 가솔린 에너지밀도
-GASOLINE_CO2_G_PER_L = 2310.0     # 가솔린 연소 CO2
+# --- VT-CPEM 상수 (Fiori et al. 2016 / 팀 발표자료 참고문헌 [5]) ---
+GRAVITY = 9.8066          # m/s^2
+AIR_DENSITY = 1.2256      # kg/m^3 (해수면, 25도C)
+CRR_A = 1.75e-3           # C_rr(u) = CRR_A * (CRR_B*u + CRR_C)
+CRR_B = 0.0328
+CRR_C = 4.575
+REGEN_ALPHA = 0.0411      # eta_rb = 1/exp(alpha/|a|)
+
+# --- 기준 차량: 닛산 리프 (BEV) ---
+# 아래 값은 Fiori et al.(2016) 원문(저자 프리프린트) 및 이를 재수록한 문헌
+# 2~7건을 교차확인한 것이다. 확인 내역은 이 파일 하단 주석 참고.
+VEHICLE = dict(
+    name="Nissan Leaf (BEV)",
+    curb_m=1521.0,        # kg — 공차중량. 논문 검증 시에는 1595kg(공차+운전자 1인,
+                          #      JRC 데이터)과 1640kg(운전자+계측장비, INL 데이터)을 썼다.
+                          #      실주행 모사에는 1595가 더 현실적이다(--mass로 변경 가능).
+    C_D=0.28,
+    A_f=2.3316,           # m^2
+    eta_D=0.92,           # 구동계
+    eta_EM=0.91,          # 전기모터
+    eta_B=0.90,           # 배터리
+    P_A=700.0,            # W, 보조장치 (참고문헌 [6] Iora & Tribioli 2019)
+)
+PAYLOAD_KG = 300.0        # 만차 기준 최대 적재 — load-factor로 스케일
+
+V_FLOOR_KMH = 3.0         # 정체/결측 속도 하한 (dt 발산 방지)
 J_PER_KWH = 3.6e6
-EV_GRID_CO2_G_PER_KWH = 424.0     # 한국 전력배출계수(근사)
-PAYLOAD_KG = 300.0                # 만차 기준 최대 적재(승객+화물) — load-factor로 스케일
-
-# 기준 차량 계수 (대표값, 조정 가능)
-VEHICLES = {
-    "ice": dict(name="내연기관 승용차", curb_m=1500.0, Cr=0.011, rho=1.225, Cd=0.30, A=2.2,
-                P_aux=3000.0, eta=0.30, regen=0.0),
-    "ev":  dict(name="전기 승용차",   curb_m=1700.0, Cr=0.010, rho=1.225, Cd=0.28, A=2.2,
-                P_aux=1000.0, eta=0.90, regen=0.60),
-}
+# 2023년 단년도 전력배출계수 0.4173 tCO2eq/MWh = 417.3 gCO2eq/kWh
+# 기후에너지환경부·국가온실가스통계관리위원회 2025.12.17 공표
+GRID_CO2_G_PER_KWH = 417.3
 
 
-def link_energy_J(L_m, v_kmh, slope_pct, veh, mass):
-    """링크 통과 에너지(J). L_m[m], v_kmh[km/h], slope_pct[signed %], mass[kg]."""
-    v = np.maximum(v_kmh, V_FLOOR_KMH) / 3.6                    # m/s
+def rolling_coefficient(u_ms: np.ndarray) -> np.ndarray:
+    """속도 의존 구름저항계수 C_rr(u).
+
+    u의 단위는 반드시 m/s다. Fiori et al.(2016) 원문에 "v(t) is the vehicle speed
+    in [m/s]"로 명시돼 있고, 같은 식의 공기저항항 0.5*rho*A_f*C_D*v^2 이 N이 되려면
+    물리적으로도 m/s여야 한다. km/h를 넣으면 20km/h에서 +10%, 50km/h에서 +23.5%
+    과대평가된다(계수 원출처인 Rakha et al. 2001 계열은 km/h 규약을 쓰지만, 그쪽은
+    Cr=1.25를 쓰므로 이 계수쌍과 섞으면 안 된다).
+    """
+    return CRR_A * (CRR_B * u_ms + CRR_C)
+
+
+def link_energy_J(L_m, v_kmh, slope_pct, mass, regen_eta: float | None):
+    """링크 통과 배터리 소비 에너지(J).
+
+    L_m[m], v_kmh[km/h], slope_pct[signed %], mass[kg].
+    regen_eta가 None이면 회생 없음(max(P_W,0)), 값이 있으면 그 효율로 회수.
+    """
+    u = np.maximum(v_kmh, V_FLOOR_KMH) / 3.6                   # m/s
+    dt = L_m / u                                               # s
     tan = slope_pct / 100.0
-    sin = tan / np.sqrt(1.0 + tan * tan)                        # signed sinθ
-    F_roll = mass * GRAVITY * veh["Cr"]
-    F_aero = 0.5 * veh["rho"] * veh["Cd"] * veh["A"] * v * v
-    F_grade = mass * GRAVITY * sin                             # signed
-    F_trac = F_roll + F_aero + F_grade                        # 총 주행저항(내리막이면 음수 가능)
+    sin = tan / np.sqrt(1.0 + tan * tan)                       # signed sin(theta)
+    cos = 1.0 / np.sqrt(1.0 + tan * tan)
 
-    E_pos = L_m * np.maximum(F_trac, 0.0) / veh["eta"]         # 양의 견인일 (구동효율로 나눔)
-    E_regen = L_m * np.minimum(F_trac, 0.0) * veh["regen"]     # 음의 견인일(내리막) 회생 회수(≤0)
-    E_aux = veh["P_aux"] * (L_m / v)                           # 보조/공회전 시간에너지
-    E = E_pos + E_regen + E_aux
-    return np.maximum(E, 0.1 * E_aux)                          # 비음수 보장(Dijkstra 안전)
+    c_rr = rolling_coefficient(u)
+    R_roll = mass * GRAVITY * c_rr * cos
+    R_grade = mass * GRAVITY * sin                             # signed
+    R_aero = 0.5 * AIR_DENSITY * VEHICLE["C_D"] * VEHICLE["A_f"] * u * u
+    P_W = (R_roll + R_grade + R_aero) * u                      # W, 바퀴 요구 동력
+
+    eta_chain = VEHICLE["eta_D"] * VEHICLE["eta_EM"] * VEHICLE["eta_B"]
+    P_traction = np.where(P_W >= 0, P_W / eta_chain,
+                          P_W * eta_chain * (regen_eta if regen_eta else 0.0))
+    E = (P_traction + VEHICLE["P_A"]) * dt
+    return np.maximum(E, 0.0), dt                              # 다익스트라용 비음수 보장
 
 
 def main():
@@ -81,6 +125,13 @@ def main():
     ap.add_argument("--tm", required=True, help="예측 시각 YYYYMMDDHHMM (13번과 동일)")
     ap.add_argument("--load-factor", type=float, default=0.0,
                     help="적재율 0(공차)~1(만차). 총질량 = 공차 + load_factor*300kg")
+    ap.add_argument("--mass", type=float, default=None,
+                    help="공차중량을 직접 지정[kg]. 미지정 시 1521(공차). "
+                         "논문 검증값 1595(공차+운전자) / 1640(INL 시험)도 참고")
+    ap.add_argument("--regen", action="store_true",
+                    help="회생제동 적용(대표 감속도로 eta_rb를 상수화). 기본은 미적용")
+    ap.add_argument("--regen-decel", type=float, default=0.5,
+                    help="회생 계산용 대표 감속도 |a| [m/s^2]. 기본 0.5(도심)")
     args = ap.parse_args()
 
     speed_path = PROCESSED / f"seoul_all_link_speed_{args.tm}.csv"
@@ -89,7 +140,6 @@ def main():
                          f"먼저 src/routing/13_predict_all_link_speed.py를 실행하세요.")
 
     df = pd.read_csv(speed_path, dtype={"LINK_ID": str}, encoding="utf-8-sig")
-    # 13번 스냅샷에 이미 slope_pct(signed 경사)가 포함돼 있으면 그대로 사용, 없으면 차원 테이블에서 결합
     if "slope_pct" not in df.columns:
         dim = pd.read_csv(DIMENSION_PATH, dtype={"LINK_ID": str},
                           usecols=["LINK_ID", "slope_pct"], encoding="utf-8-sig")
@@ -99,39 +149,41 @@ def main():
     L = df["LENGTH"].to_numpy(dtype=float)
     v = df["speed_kmh"].to_numpy(dtype=float)
     s = df["slope_pct"].to_numpy(dtype=float)
+    curb = args.mass if args.mass else VEHICLE["curb_m"]
+    mass = curb + args.load_factor * PAYLOAD_KG
 
-    for key, veh in VEHICLES.items():
-        mass = veh["curb_m"] + args.load_factor * PAYLOAD_KG
-        e = link_energy_J(L, v, s, veh, mass)
-        df[f"energy_{key}_J"] = np.round(e, 1)
-        df[f"energy_{key}_per_km"] = np.round(e / (L / 1000.0), 1)   # J/km (비효율 진단용)
-        if key == "ice":
-            df["fuel_ml"] = np.round(e / GASOLINE_J_PER_L * 1000.0, 3)
-            df["co2_ice_g"] = np.round(e / GASOLINE_J_PER_L * GASOLINE_CO2_G_PER_L, 2)
-        else:
-            df["ev_wh"] = np.round(e / J_PER_KWH * 1000.0, 2)
-            df["co2_ev_g"] = np.round(e / J_PER_KWH * EV_GRID_CO2_G_PER_KWH, 2)
+    regen_eta = None
+    if args.regen:
+        regen_eta = float(1.0 / np.exp(REGEN_ALPHA / abs(args.regen_decel)))
 
+    E, dt = link_energy_J(L, v, s, mass, regen_eta)
+    df["energy_ev_J"] = np.round(E, 1)
+    df["energy_ev_per_km"] = np.round(E / (L / 1000.0), 1)
+    df["ev_wh"] = np.round(E / J_PER_KWH * 1000.0, 3)
+    df["co2_ev_g"] = np.round(E / J_PER_KWH * GRID_CO2_G_PER_KWH, 3)
+    if "travel_time_sec" not in df.columns:
+        df["travel_time_sec"] = np.round(dt, 1)
+
+    keep = ["LINK_ID", "F_NODE", "T_NODE", "LENGTH", "speed_kmh", "slope_pct",
+            "travel_time_sec", "energy_ev_J", "energy_ev_per_km", "ev_wh", "co2_ev_g",
+            "tier", "speed_source"]
     out = PROCESSED / f"seoul_all_link_energy_{args.tm}.csv"
-    keep = ["LINK_ID", "LENGTH", "speed_kmh", "slope_pct", "travel_time_sec",
-            "energy_ice_J", "energy_ice_per_km", "fuel_ml", "co2_ice_g",
-            "energy_ev_J", "energy_ev_per_km", "ev_wh", "co2_ev_g"]
-    if "speed_source" in df:
-        keep.append("speed_source")
     df[[c for c in keep if c in df]].to_csv(out, index=False, encoding="utf-8-sig")
 
     # 요약
     tot_km = (L / 1000.0).sum()
-    print(f"[완료] {out.name}")
-    print(f"  링크 {len(df):,} | 총연장 {tot_km:,.0f} km | 적재율 {args.load_factor:.0%} (총질량 ICE {VEHICLES['ice']['curb_m']+args.load_factor*PAYLOAD_KG:.0f}kg)")
-    print(f"  ICE 총 연료 {df['fuel_ml'].sum()/1000:,.1f} L | CO2 {df['co2_ice_g'].sum()/1000:,.1f} kg")
-    print(f"  EV  총 전력 {df['ev_wh'].sum()/1000:,.1f} kWh | CO2 {df['co2_ev_g'].sum()/1000:,.1f} kg")
-    print(f"  링크당 평균 에너지: ICE {df['energy_ice_per_km'].mean()/1e6:.3f} MJ/km | EV {df['energy_ev_per_km'].mean()/1e6:.3f} MJ/km")
-    print(f"  EV가 ICE 대비 CO2 {(1 - df['co2_ev_g'].sum()/df['co2_ice_g'].sum())*100:.0f}% 절감")
-    # 경사 효과 확인
-    up = df[df["slope_pct"] > 3]["energy_ice_per_km"].mean()
-    flat = df[df["slope_pct"].abs() <= 1]["energy_ice_per_km"].mean()
-    print(f"  급오르막(>3%) vs 평지(±1%) ICE 에너지: {up/1e6:.3f} vs {flat/1e6:.3f} MJ/km ({up/flat:.1f}배)")
+    wh_per_km = df["ev_wh"].sum() / tot_km
+    print(f"[완료] {out.name}   모델: VT-CPEM (Fiori et al. 2016)")
+    print(f"  기준차: {VEHICLE['name']} | 총질량 {mass:.0f}kg (적재율 {args.load_factor:.0%})")
+    print(f"  회생제동: {'적용 (|a|=%.2f m/s^2, eta_rb=%.3f)' % (args.regen_decel, regen_eta) if regen_eta else '미적용'}")
+    print(f"  링크 {len(df):,} | 총연장 {tot_km:,.0f} km")
+    print(f"  총 전력 {df['ev_wh'].sum()/1000:,.1f} kWh | CO2 {df['co2_ev_g'].sum()/1000:,.1f} kg")
+    print(f"  평균 전비 {wh_per_km:.1f} Wh/km   (실측 도심 참고: 150~200 Wh/km)")
+    up = df[df["slope_pct"] > 3]["energy_ev_per_km"].mean()
+    flat = df[df["slope_pct"].abs() <= 1]["energy_ev_per_km"].mean()
+    down = df[df["slope_pct"] < -3]["energy_ev_per_km"].mean()
+    print(f"  급오르막(>3%) {up/1e6:.3f} / 평지(±1%) {flat/1e6:.3f} / 급내리막(<-3%) {down/1e6:.3f} MJ/km"
+          f"   -> 오르막이 평지의 {up/flat:.1f}배, 내리막은 {down/flat:.2f}배")
 
 
 if __name__ == "__main__":
