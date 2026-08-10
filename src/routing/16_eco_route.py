@@ -68,9 +68,32 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--tm", required=True, help="시각 YYYYMMDDHHMM (15번과 동일)")
     p.add_argument("--od-file", help="OD CSV 경로 (name,olat,olon,dlat,dlon)")
+    p.add_argument("--random-pairs", type=int, default=0,
+                   help="주요지점 대신 무작위 OD를 N쌍 뽑는다(대표성 검증용)")
+    p.add_argument("--seed", type=int, default=42, help="무작위 OD 시드")
     p.add_argument("--max-pairs", type=int, default=30, help="OD 쌍 최대 개수")
     p.add_argument("--min-km", type=float, default=3.0, help="직선거리 이보다 짧은 쌍은 제외")
+    p.add_argument("--max-km", type=float, default=20.0, help="직선거리 이보다 먼 쌍은 제외")
+    p.add_argument("--tag", default="", help="출력 파일명 접미사 (예: random200)")
     return p.parse_args()
+
+
+def sample_random_pairs(nodes: pd.DataFrame, scc: set, n: int, seed: int,
+                        min_km: float, max_km: float) -> list:
+    """SCC 안의 노드에서 무작위 OD 쌍을 뽑는다. 주요지점 표본의 대표성을 검증하기 위한 것."""
+    rng = np.random.default_rng(seed)
+    sub = nodes[nodes["NODE_ID"].isin(scc)].reset_index(drop=True)
+    pairs, tries = [], 0
+    while len(pairs) < n and tries < n * 60:
+        tries += 1
+        i, j = rng.integers(0, len(sub), 2)
+        if i == j:
+            continue
+        o, d = sub.iloc[int(i)], sub.iloc[int(j)]
+        km = np.hypot((o["lat"] - d["lat"]) * 111, (o["lon"] - d["lon"]) * 88)
+        if min_km <= km <= max_km:
+            pairs.append((f"rand{len(pairs):04d}", (o["lat"], o["lon"]), (d["lat"], d["lon"])))
+    return pairs
 
 
 def build_graph(df: pd.DataFrame) -> nx.DiGraph:
@@ -157,13 +180,17 @@ def main() -> None:
         od = pd.read_csv(args.od_file)
         pairs = [(r["name"], (r["olat"], r["olon"]), (r["dlat"], r["dlon"]))
                  for _, r in od.iterrows()]
+        pairs = pairs[: args.max_pairs]
+    elif args.random_pairs:
+        pairs = sample_random_pairs(nodes, scc, args.random_pairs, args.seed,
+                                    args.min_km, args.max_km)
     else:
         pairs = []
         for (n1, p1), (n2, p2) in itertools.combinations(SEOUL_POINTS.items(), 2):
             km = np.hypot((p1[0] - p2[0]) * 111, (p1[1] - p2[1]) * 88)
             if km >= args.min_km:
                 pairs.append((f"{n1}→{n2}", p1, p2))
-    pairs = pairs[: args.max_pairs]
+        pairs = pairs[: args.max_pairs]
     print(f"[3/4] 경로 탐색 ({len(pairs)}개 OD x 3경로)...")
 
     records, features = [], []
@@ -200,11 +227,12 @@ def main() -> None:
                 })
 
     print("[4/4] 결과 저장...")
+    suffix = f"_{args.tag}" if args.tag else ""
     comp = pd.DataFrame(records)
-    comp_path = PROCESSED / f"route_comparison_{args.tm}.csv"
+    comp_path = PROCESSED / f"route_comparison_{args.tm}{suffix}.csv"
     comp.to_csv(comp_path, index=False, encoding="utf-8-sig")
 
-    geo_path = PROCESSED / f"routes_{args.tm}.geojson"
+    geo_path = PROCESSED / f"routes_{args.tm}{suffix}.geojson"
     geo_path.write_text(json.dumps({"type": "FeatureCollection", "features": features},
                                    ensure_ascii=False), encoding="utf-8")
 
