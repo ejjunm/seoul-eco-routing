@@ -43,6 +43,11 @@ data/processed/**
 !data/processed/**/
 !data/processed/**/.gitkeep
 
+# 학습된 모델 아티팩트도 크고, src/models/*.py로 재현 가능해서 데이터와 같은 원칙으로 제외.
+src/models/artifacts/**
+!src/models/artifacts/**/
+!src/models/artifacts/**/.gitkeep
+
 # Legacy data locations.
 traffic_data/raw/
 traffic_data/processed/
