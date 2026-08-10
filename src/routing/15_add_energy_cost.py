@@ -60,9 +60,13 @@ CRR_C = 4.575
 REGEN_ALPHA = 0.0411      # eta_rb = 1/exp(alpha/|a|)
 
 # --- 기준 차량: 닛산 리프 (BEV) ---
+# 아래 값은 Fiori et al.(2016) 원문(저자 프리프린트) 및 이를 재수록한 문헌
+# 2~7건을 교차확인한 것이다. 확인 내역은 이 파일 하단 주석 참고.
 VEHICLE = dict(
     name="Nissan Leaf (BEV)",
-    curb_m=1521.0,        # kg
+    curb_m=1521.0,        # kg — 공차중량. 논문 검증 시에는 1595kg(공차+운전자 1인,
+                          #      JRC 데이터)과 1640kg(운전자+계측장비, INL 데이터)을 썼다.
+                          #      실주행 모사에는 1595가 더 현실적이다(--mass로 변경 가능).
     C_D=0.28,
     A_f=2.3316,           # m^2
     eta_D=0.92,           # 구동계
@@ -80,7 +84,14 @@ GRID_CO2_G_PER_KWH = 417.3
 
 
 def rolling_coefficient(u_ms: np.ndarray) -> np.ndarray:
-    """속도 의존 구름저항계수 C_rr(u). u는 m/s."""
+    """속도 의존 구름저항계수 C_rr(u).
+
+    u의 단위는 반드시 m/s다. Fiori et al.(2016) 원문에 "v(t) is the vehicle speed
+    in [m/s]"로 명시돼 있고, 같은 식의 공기저항항 0.5*rho*A_f*C_D*v^2 이 N이 되려면
+    물리적으로도 m/s여야 한다. km/h를 넣으면 20km/h에서 +10%, 50km/h에서 +23.5%
+    과대평가된다(계수 원출처인 Rakha et al. 2001 계열은 km/h 규약을 쓰지만, 그쪽은
+    Cr=1.25를 쓰므로 이 계수쌍과 섞으면 안 된다).
+    """
     return CRR_A * (CRR_B * u_ms + CRR_C)
 
 
@@ -114,6 +125,9 @@ def main():
     ap.add_argument("--tm", required=True, help="예측 시각 YYYYMMDDHHMM (13번과 동일)")
     ap.add_argument("--load-factor", type=float, default=0.0,
                     help="적재율 0(공차)~1(만차). 총질량 = 공차 + load_factor*300kg")
+    ap.add_argument("--mass", type=float, default=None,
+                    help="공차중량을 직접 지정[kg]. 미지정 시 1521(공차). "
+                         "논문 검증값 1595(공차+운전자) / 1640(INL 시험)도 참고")
     ap.add_argument("--regen", action="store_true",
                     help="회생제동 적용(대표 감속도로 eta_rb를 상수화). 기본은 미적용")
     ap.add_argument("--regen-decel", type=float, default=0.5,
@@ -135,7 +149,8 @@ def main():
     L = df["LENGTH"].to_numpy(dtype=float)
     v = df["speed_kmh"].to_numpy(dtype=float)
     s = df["slope_pct"].to_numpy(dtype=float)
-    mass = VEHICLE["curb_m"] + args.load_factor * PAYLOAD_KG
+    curb = args.mass if args.mass else VEHICLE["curb_m"]
+    mass = curb + args.load_factor * PAYLOAD_KG
 
     regen_eta = None
     if args.regen:
