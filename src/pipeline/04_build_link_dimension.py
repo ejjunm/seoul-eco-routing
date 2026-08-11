@@ -7,10 +7,8 @@ seoul_link_dimension.csv(63,548행)를 만든다.
 실측 평균속도/혼잡지표, 이번에 파이프라인으로 이관)를 통합한다.
 
 seoul_link_dem_features.csv는 seoul_link_dimension.csv를 만들기 위한 중간
-재료라 data/interim/에 둔다 — src/12_build_all_link_weather_snapshot.py/
-src/15_add_energy_cost.py가 아직 이 파일을 data/processed/에서 직접 읽고
-있다면, 각 스크립트를 새 dimension 테이블을 쓰도록 옮길 때 경로도 함께
-interim/으로 바꿔야 한다.
+재료라 data/interim/에 둔다. 현재 속도 예측·에너지 계산 파이프라인은
+완성된 dimension 테이블을 직접 사용하므로 이 중간 파일을 소비하지 않는다.
 
 bus_lane_ratio/school_zone_count/accident_hotspot_count/speed_bump_count는
 "없으면 0"이 맞다(해당 시설이 진짜 없다는 뜻). traffic_volume_aadt와

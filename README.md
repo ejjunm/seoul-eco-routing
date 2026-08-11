@@ -1,9 +1,12 @@
 # Seoul Eco Routing
 
-서울시 도로 링크, ITS 5분 단위 교통소통 데이터, DEM 고도, KMA 레이더 강수량을 결합해 서울 전역 링크의 시간대별 속도와 통행시간을 추정하는 프로젝트입니다.
+서울 표준노드링크, 5분 교통속도, DEM 경사, KMA 레이더 강수, 교통량·생활인구를 결합해 서울 전 도로 링크의 시간별 속도와 Nissan Leaf 기준 에너지 비용을 구축하는 프로젝트입니다.
 
-현재 속도 데이터는 ITS 국가교통정보센터 계열의 5분 단위 전국 교통소통 원본(하루 약 1.7억 행)을 서울 표준노드링크 LINK_ID 기준으로 걸러 1시간 단위로 집계해 사용합니다(과거에 쓰던 T-data 1시간 소통정보 + 공식 매핑 테이블 방식은 커버리지가 17.33%에 그쳐 대체했습니다 — 배경은 [data/README.md](data/README.md) 참고). KMA 레이더 강수량은 API로 내려받아 시간·공간 기준으로 링크에 매칭합니다.
+## 현재 완료 상태
 
+<<<<<<< HEAD
+| 단계 | 상태 | 실제 산출물 |
+=======
 5분 데이터로도 서울 표준링크 63,548개 중 44,960개(70.75%)만 직접 관측됩니다(나머지는 TOPIS 관측 인프라가 없는 이면도로). 그래서 파이프라인은 관측 링크만 연결해 경로를 찾는 방식이 아니라, 관측값을 학습 라벨로 쓰고 모든 링크에서 구할 수 있는 도로·지형·시간·강수 피처로 나머지 링크의 속도를 추정하는 **전 링크 모델(Model B)** 을 이어 붙입니다.
 
 데이터 스키마, 서울 링크 추출/매칭 방식, 누수 방지 평가, 전 링크 추정 방식과 한계는 **[data/README.md](data/README.md)**를 참고하세요.
@@ -53,21 +56,32 @@
 ## Main Data
 
 | Data | Path | Usage |
+>>>>>>> origin/main
 | --- | --- | --- |
-| ITS 표준 링크 | `data/raw/road/MOCT_LINK.*` | 도로 링크 geometry와 속성 |
-| ITS 표준 노드 | `data/raw/road/MOCT_NODE.*` | 도로망 노드 |
-| 서울 행정경계 | `data/raw/boundary/seoul_admin_boundary.geojson` | 서울 링크 추출 기준 (25개 자치구 경계, EPSG:4326) |
-| 5분 단위 전국 교통소통 | `data/raw/traffic/202607_5Min/*_5Min.csv` | 링크별 5분 단위 통과속도(하루치 약 7GB, 전국 단위) |
-| DEM | `data/raw/dem/*.img` | 링크별 고도/경사도 |
-| KMA HSR 격자 | `data/raw/weather/grid/hsr_lon.txt`, `hsr_lat.txt` | 레이더 격자 위치 |
-| KMA 1시간 누적 강수 | `data/raw/weather/radar/hsr_pcph_acc60_*.txt` | 링크별 시간대 강수량 |
+| 서울 링크 추출·정적 피처 | 완료 | 63,548링크 차원 테이블 |
+| 5분 속도→1시간 관측 팩트 | 완료 | 44,960 관측 링크, 15,094,335행 |
+| A/B/C 속도모델 학습 | 완료 | A lookup, 이웃 lookup, B/C XGBoost |
+| 14일 전 링크 속도 | 완료 | 7/7 00시 제외 335 CSV, 파일당 63,548행 |
+| 전 링크 EV 에너지 | 완료 | 335 Parquet, 총 21,288,580 링크-시간 |
+| 관측속도·에너지 EDA | 완료 | 네 종류 폴더, 총 39개 그림 |
+| 과거재현 하이브리드 | 완료 | 실제 A + 예측 B/C, 335 Parquet |
+| 거리·시간·에너지 라우팅 | 과거 실행 완료 | 당시 실행 코드와 최종 시나리오 CSV는 정리되어 현재 즉시 재현 불가 |
 
-각 데이터의 상세 스키마는 [data/README.md](data/README.md)를 참고하세요.
+분석기간은 2026-07-07~2026-07-20입니다. 공통 레이더 입력이 없는 2026-07-07 00:00만 제외해 `14×24-1=335`개 시점을 사용합니다.
 
-## Scripts
+## 문서
 
-`src/pipeline/`의 파일명 앞 번호는 실행 순서(파이프라인 순서)를 나타냅니다. 데이터를 "링크당 1행(차원 테이블)"과 "(LINK_ID,기준일,시간코드)당 1행(팩트 테이블)"로 정규화해서 저장합니다(옛 버전은 정적 속성을 관측 행마다 중복 저장해 용량이 컸습니다) — 스키마는 [data/README.md](data/README.md) 참고.
+- [데이터 분석 보고서 초안](docs/DATA_ANALYSIS_REPORT.md): 보고서 본문에 사용할 연구 배경·데이터·방법·결과·한계
+- [방법론과 코드 파이프라인](docs/METHODS_AND_PIPELINE.md): 모든 공식 스크립트의 입력·처리·출력·실행 순서
+- [노트북 전수 검토](docs/NOTEBOOK_AUDIT.md): `11_*`, `12_*`, `13_*` 실험 결과와 현재 코드의 차이
+- [EDA 그림·표 해석](docs/EDA_GUIDE.md): 39개 그림 각각의 축, 의미, 주장 가능한 내용과 주의점
+- [서울 전 도로망 실루엣](docs/figures/network/01_seoul_all_links_silhouette.png): 속도·에너지 색을 제거한 63,548개 전체 링크 기본 지도
+- [분석 문서 안내](docs/README.md): 문서 읽는 순서와 핵심 용어
+- [데이터 사전](data/README.md): 폴더·파일·컬럼·행 수·용도
 
+<<<<<<< HEAD
+## 가장 중요한 용어 구분
+=======
 | Script | Description |
 | --- | --- |
 | `src/pipeline/01_extract_seoul_links.py` | 서울 행정경계(25개 자치구) 기준 링크를 추출해 `seoul_link.*`, `seoul_link_attr.csv` 생성 |
@@ -82,38 +96,42 @@
 | `src/routing/15_add_energy_cost.py` | 13번 속도 스냅샷 + 경사로 링크별 배터리 소비 에너지 계산 — **VT-CPEM**(Fiori et al. 2016), 기준차 닛산 리프 |
 | `src/routing/16_eco_route.py` | 링크 에너지를 간선 비용으로 써서 최단거리/최단시간/**에너지최적** 3경로를 비교. 경로 GeoJSON과 절감률 표 생성 |
 | `app/main.py` | Streamlit 대시보드 구축 및 동적 UI 제어: maps.py가 사전 연산한 스냅샷을 활용한 실시간 대시보드. 컨트롤 패널(날짜/시간/기준변수 선택), 3D PyDeck 탭(경사도 Z축 렌더링), 2D Folium 탭(도로 클릭 시 툴팁 상세 속성 조회), 다중 속성 테이블 탐색기(도로명 필터링) 제공 |
+>>>>>>> origin/main
 
-진단·시각화(매칭률, 지도 등)는 `src/pipeline/`에 두지 않고 `notebooks/`에서 다룹니다 — 이전 T-data+공식매핑 방식에서 5분 데이터 방식으로 왜 바꿨는지, 매칭 방법이 어떻게 검증됐는지는 [data/README.md의 "속도 데이터 매칭"](data/README.md#속도-데이터-매칭)에 자세히 정리되어 있습니다.
+- **A-Observed:** 해당 날짜·시간의 5분 관측을 1시간 평균한 실제 속도 `평균속도`
+- **A lookup:** 관측 링크의 `LINK_ID×시간×평일/주말` 과거 평균 `pred_speed`; 실제값이 아니라 예측값
+- **B prediction:** 자체 관측은 없지만 관측 이웃의 역사적 시간대 속도가 있는 링크의 XGBoost 예측
+- **C prediction:** 이웃속도도 없는 링크의 정적 XGBoost 예측
+- **관측속도 기반 에너지:** actual A 속도를 물리식에 넣은 추정치; 차량 실측 전력은 아님
+- **전 링크 예측 에너지:** A lookup+B/C 속도를 물리식에 넣은 추정치
+- **과거 하이브리드:** 해당 시점 actual A를 우선하고 없는 곳만 lookup/B/C로 채운 후향적 분석 자료
 
-## Pipeline
+A/B/C는 경사도 등급이 아니라 속도정보 가용성 계층입니다.
 
-현재 작업은 다음 순서로 이어집니다.
-
-1. `pipeline/01`: 전국 표준노드링크에서 서울 행정경계와 교차하는 63,548개 링크를 추출합니다.
-2. `pipeline/02`: 5분 단위 전국 교통소통 원본에서 서울 링크만 걸러 1시간 단위로 집계합니다(44,960개 링크, 70.75%).
-3. `pipeline/03`: 필요한 시각의 KMA 레이더 원본을 수집합니다.
-4. `pipeline/04`: DEM 고도/경사, 도로망 위상, 외부 컨텍스트를 전부 결합해 링크 차원 테이블을 만듭니다.
-5. `pipeline/05`: 레이더 강수·시간대별 교통량을 결합해 속도 팩트 테이블을 만듭니다.
-6. `models/11`: 날짜 순차 분할과 원본 링크 GroupKFold로 시간·공간 일반화를 평가합니다.
-7. `routing/12~13`: 원하는 시각의 전 링크 기상 스냅샷을 만든 뒤 63,548개 링크 모두의 속도와 통행시간을 생성합니다.
-8. `routing/15`: 속도 스냅샷에 DEM 경사를 결합해 링크별 배터리 소비 에너지를 계산합니다(VT-CPEM).
-9. `routing/16`: 링크 에너지를 간선 비용으로 써서 에너지 최적 경로를 찾고, 최단거리·최단시간 경로와 비교합니다.
-
-속도 산출 우선순위는 다음과 같습니다.
+## 프로젝트 구조
 
 ```text
-해당 시각 팩트 테이블 관측값                              (A 계층 44,960)
-    -> 1홉에 관측 이웃이 있으면  이웃속도 포함 모델        (B 계층 14,006)
-    -> 1홉에 관측 이웃이 없으면  정적 전용 모델            (C 계층  4,582)
-    -> 학습에 없던 범주/지원 표본 부족이면 계층적 fallback
-    -> speed_kmh로 링크 통행시간 계산
+src/
+  pipeline/   원자료 수집·서울 링크 추출·시간 집계·차원/팩트 구축
+  models/     A lookup, B/C 학습, 한 시점/기간 전 링크 속도 예측
+  energy/     VT-CPEM 링크 에너지 계산
+  eda/        관측속도·관측에너지·A lookup·전 링크 결과 EDA
+experiments/  과거 탐색 실험; 현재 공식 파이프라인 아님
+notebooks/    모델 선택과 피처 실험 기록
+data/         raw/interim/processed 데이터와 데이터 사전
+docs/         보고서용 문서와 EDA 그림
+tests/        에너지식 단위 테스트
 ```
 
-미관측 링크에 모델을 하나만 쓰지 않고 둘로 나누는 이유는 `notebooks/13_tier_split_evaluation.ipynb`에 있습니다 — 이웃속도 피처가 B에서는 R² +0.067이지만 C에서는 **−0.178**이라, 단일 모델로 쓰면 정보가 가장 부족한 계층이 오히려 나빠집니다.
+과거 `src/routing/13_predict_all_link_speed.py`, `15_add_energy_cost.py`, `16_eco_route.py`는 현재 구조에서 사용하지 않습니다. 각각의 역할은 `src/models/03~04`, `src/energy/01~03`으로 대체됐습니다. 단, `16`이 수행했던 최단거리·최단시간·에너지최소 경로 비교 자체는 과거에 실행된 분석입니다.
 
+## 공식 파이프라인
 
-**스크립트별 상태** (파이프라인 리팩토링 이후):
+### 1. 원자료 가공
 
+<<<<<<< HEAD
+```powershell
+=======
 | 스크립트 | 상태 |
 | --- | --- |
 | `routing/12_build_all_link_weather_snapshot.py` | ✅ 이동 및 최적화 완료 — src/routing/ 이동, C-레벨 정규식 제거/NumPy/Polars 엔진 도입으로 고속화, data/processed/weather_snapshot/ 폴더화 및 멱등성 확립 |
@@ -173,70 +191,116 @@ python -m nbconvert --to notebook --execute --inplace notebooks\13_tier_split_ev
 ## Streamlit 시각화 Pipeline
 ```
 # Step 1: 기본 데이터 수집 및 팩트/차원 테이블 빌드
+>>>>>>> origin/main
 python src/pipeline/01_extract_seoul_links.py
 python src/pipeline/02_aggregate_5min_speed.py
-python src/pipeline/03_fetch_kma_radar.py
+python src/pipeline/03_fetch_kma_radar.py --from-5min-times
 python src/pipeline/04_build_link_dimension.py
 python src/pipeline/05_build_speed_fact.py
-
-# Step 2: 시각화용 에코 스냅샷 일괄 생성 (maps.py 실행)
-python -m src.eda.maps
-
-# Step 3: Streamlit 대시보드 구동
-streamlit run app/main.py
 ```
 
-## Streamlit 기능 요약
-- **원하는 분석 조건 즉시 변경 (단일화된 컨트롤 패널)**
-    - 왼쪽 사이드바에서 분석하고 싶은 '날짜'와 '시간'을 고르고, 지도에 색상으로 표현할 '기준 변수(속도, 연료소모량, 강수량 등)'를 선택하면 즉시 맵 화면이 그에 맞게 업데이트됩니다
-- **입체적인 지형 및 혼잡 관제 (3D PyDeck 탭)**
-    - 도로의 실제 경사도(`slope_pct`)를 Z축(높이)으로 띄웁니다
-    - 이를 통해 어느 도로가 급격한 오르막/내리막인지 입체적으로 보면서 선택한 변수(예: 속도, 에너지 소모)를 직관적으로 분석할 수 있습니다
-- **정밀한 도로 속성 조회 (2D Folium 탭)**
-    - 지도 위의 특정 도로 선분을 마우스로 클릭하면, 해당 도로의 어린이보호구역 유무, 교차로 복잡도, 차로 수 등 10여 가지가 넘는 세부 환경 변수 정보를 팝업 툴팁으로 바로 확인할 수 있습니다
-- **특정 도로명 검색 및 전체 데이터 표 확인 (다중 속성 테이블 탐색기)**
-    - 지도 아래의 표에서 시각화된 전체 도로 데이터를 한눈에 엑셀처럼 볼 수 있습니다
-    - 검색창에 '종로', '세종대로' 등을 입력해 원하는 도로의 수치만 빠르게 필터링해 찾아보는 것도 가능합니다
+### 2. 속도모델
 
-## Current Results (요약)
+```powershell
+python src/models/01_build_model_a.py
+python src/models/02_build_model_bc.py --mode validate
+python src/models/02_build_model_bc.py --mode final
+```
+
+현재 전 링크 계층은 A 44,960개, B 16,752개, C 1,836개입니다. B는 61개 피처, C는 이웃속도를 제외한 60개 피처의 XGBoost를 사용합니다.
+
+### 3. 속도 예측
+
+```powershell
+# 한 시점: 표준 링크별 레이더 강수 스냅샷 사용
+python src/models/03_predict_all_link_speed.py --tm 202607160800
+
+# 한 시점 강수 시나리오
+python src/models/03_predict_all_link_speed.py --tm 202607160800 --precip-mm 0
+
+# 기간 전체
+python src/models/04_batch_predict_all_link_speed.py --start-date 20260707 --end-date 20260720
+```
+
+출력은 `data/processed/all_link_speed_prediction_{YYYYMMDDHHMM}.csv`입니다. 각 파일에 63,548개 링크의 `speed_kmh`, `tier`, `speed_source`, `prediction_confidence`가 있습니다.
+
+### 4. 전기차 에너지
+
+```powershell
+# 한 시점
+python src/energy/01_compute_link_energy.py --tm 202607160800
+
+# 기간 전체
+python src/energy/02_batch_compute_link_energy.py --start-date 20260707 --end-date 20260720
+
+# 실제 A 관측속도만 별도 계산
+python src/energy/03_compute_observed_speed_energy.py --start-date 20260707 --end-date 20260720 --exclude-tm 202607070000
+```
+
+VT-CPEM은 프로젝트 원문 [에코라우팅.pdf](에코라우팅.pdf)를 따라 링크 내 평균속도 일정, 가속도 0, 회생제동 없음으로 근사합니다. 원경사는 보존하되 계산경사는 ±12%로 제한합니다. 경로 비용은 `energy_ev_j` 또는 `energy_ev_wh`이고 `energy_wh_per_km`는 효율 비교용입니다.
+
+### 5. EDA와 하이브리드
+
+```powershell
+python src/eda/observed_speed_eda.py
+python src/eda/observed_energy_eda.py
+python src/eda/compare_observed_lookup_and_build_hybrid.py
+python src/eda/14_speed_energy_eda.py --start-date 20260707 --end-date 20260720
+```
+
+각 그림의 정확한 의미는 [EDA_GUIDE.md](docs/EDA_GUIDE.md)를 참고합니다.
+
+## 주요 데이터 결과
+
+| 산출물 | 크기/구성 |
+| --- | --- |
+| `seoul_link_dimension.csv` | 63,548 링크 |
+| `seoul_link_speed_fact.csv` | 15,094,335 관측 링크-시간 |
+| `model_a_lookup.parquet` | 2,158,080행 = 44,960×48 |
+| `neighbor_speed_lookup.parquet` | 3,050,304행 = 63,548×48 |
+| `all_link_speed_prediction_*.csv` | 335개, 각 63,548행 |
+| `link_energy/link_energy_*.parquet` | 335개, 각 63,548행 |
+| `observed_speed_energy/` | 15,049,459 actual A 링크-시간 |
+| `historical_hybrid_link_energy/` | 335개, 총 21,288,580행 |
+
+## 에너지 모델 요약
 
 ```text
-서울 링크 수: 63,548
-속도 데이터 결합 고유 링크 수: 44,960 (70.75%)
-연결 컴포넌트 수: 1,650 | 최대 컴포넌트 링크 비율: 95.28%
-DEM 샘플 존재 링크 비율: 100.0%
-레이더 강수 결합 완료 시각: 336/336
+u = speed_kmh / 3.6
+Δt = LENGTH / u
+θ = arctan(slope_pct_used / 100)
+Crr = 1.75e-3 × (0.0328u + 4.575)
+Pwheel = [m g Crr cosθ + m g sinθ + 0.5ρCdAf u²]u
+Pbattery = max(Pwheel, 0)/(ηDηEMηB) + 700W
+E = Pbattery × Δt
 ```
 
-Model B(구 T-data 버전, 11,010개 링크 기준 — 5분 데이터로 재평가 전):
+기준 차량 상수는 `m=1521kg`, `Cd=0.28`, `Af=2.3316m²`, `ρ=1.2256kg/m³`, `ηD=0.92`, `ηEM=0.91`, `ηB=0.90`입니다. 자세한 가정과 출력은 [방법론 문서](docs/METHODS_AND_PIPELINE.md)를 참고합니다.
 
-```text
-시간 일반화: MAE 4.72 km/h | R² 0.740
-공간 일반화(5-fold 평균): MAE 5.61 km/h | R² 0.641
-원본 관측 train/test 중복: 0건
-전 링크 예측 결과: 63,548개 | 속도/통행시간 결측 0건
-```
+## 라우팅 상태
 
-계층별 성능(`13_tier_split_evaluation.ipynb`, 5분 데이터 44,960개 링크 · 15.1M행 기준):
+라우팅은 링크를 `F_NODE→T_NODE` 방향 간선으로 보고 비용을 달리해 다음 세 경로를 찾는 것입니다.
 
-| 계층 | 링크수 | 연장 | 배포 시 쓰는 방법 | 평가 분할 | R² | MAE |
-| --- | ---: | ---: | --- | --- | ---: | ---: |
-| A 관측 | 44,960 (70.7%) | 4,858 km | 이력 조회표(링크×시간×주중/주말) | 날짜 순차 | 0.877 | 2.75 |
-| B 미관측·이웃있음 | 14,006 (22.0%) | 787 km | LightGBM + 인접 실측 이웃속도 | 공간 블록 2km | 0.780 | 5.49 |
-| C 미관측·이웃없음 | 4,582 (7.2%) | 402 km | LightGBM 정적 전부 (이웃속도 **제외**) | 공간 블록 2km | 0.492 | 5.99 |
+- 최단거리: `Σ LENGTH`
+- 최단시간: `Σ travel_time_sec`
+- 에너지최소: `Σ energy_ev_j`
 
-링크수 가중 평균 MAE 3.59 km/h. C 계층에 이웃속도 피처를 그대로 넣으면 R²가 0.492 → **0.314로 떨어집니다** — 훈련 행 대부분에 이웃속도가 있어 모델이 그 피처에 의존하도록 학습되는데, C에서는 결측이기 때문입니다. 미관측 링크는 계층별로 다른 모델을 써야 합니다(결측 폴백은 0.419까지만 회복). 근거와 해결책 비교는 노트북 7절 참고.
+이 비교는 과거 실행됐습니다. 현재는 당시 `src/routing/16_eco_route.py`와 `route_scenario_summary.csv`가 정리돼 동일 결과를 바로 재실행할 수 없습니다. 남아 있는 `experiments/eco_routing*.py`는 오래된 내연기관 근사·옛 데이터 경로를 사용하므로 현재 Nissan Leaf EV 분석과 혼용하지 않습니다.
 
-피처 그룹별 R² 기여도(공간 블록분할):
+## 검증
 
-| 피처 그룹 | B 이웃있음 | C 이웃없음 |
-| --- | ---: | ---: |
-| 도로망 위상·파생 28개 (`pipeline/04`) | +0.026 | **+0.043** |
-| 외부 컨텍스트 7개 (교통량/버스전용차로/스쿨존/사고다발/과속방지턱) | +0.006 | +0.010 |
-| 인접 실측 이웃속도 | **+0.067** | **−0.178** |
+에너지식은 `tests/test_link_energy.py`에서 평지 양의 에너지, 오르막 증가, 경사 clipping, 필수입력 검증을 검사합니다. 대용량 데이터 품질표에는 시점별 링크수, 속도·에너지 결측, 음의 에너지, 경사 이상치 수가 저장됩니다.
 
-**정적 피처 중에서는 외부 시설물보다 도로망 위상이 4배 이상 기여합니다**(모델 gain 비중도 위상·파생 12.7% vs 외부 2.5%). 외부 컨텍스트가 계속 +0.01에 그치는 이유는 계층별 커버리지에서 드러납니다(노트북 2절):
+## 한계
 
+<<<<<<< HEAD
+- 14일 자료라 연중·계절 일반화가 어렵습니다.
+- A lookup의 같은 기간 비교는 외부시험이 아닙니다.
+- B/C는 실제 미관측 링크 정답이 없어 관측 링크 GroupKFold로 대리평가합니다.
+- 교통량·View-T는 희소하고 일부 동적 입력은 과거 시간대 평균입니다.
+- 에너지는 실차 계측값이 아니며 가감속·신호·회생제동·기온·냉난방·SOC를 반영하지 않습니다.
+- 현재 라우팅 결과의 실행 코드와 최종 CSV가 함께 보존되지 않아 완전 재현성이 부족합니다.
+=======
 | 계층 | 교통량 | 버스전용차로 | 스쿨존 | 사고다발 | 과속방지턱 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | A 관측 | 39.3% | 10.1% | 41.6% | 4.5% | 16.1% |
@@ -313,3 +377,4 @@ python src\pipeline\03_fetch_kma_radar.py --tm 202607070300
 - Model B의 공간 일반화 평가는 관측 링크 일부를 통째로 제외하는 방식입니다. 실제 미관측 29.25% 링크에는 정답 속도가 없으므로 그 구간의 정확도를 직접 측정한 결과는 아닙니다.
 - 현재 전 링크 출력으로 연결된 서울 도로망의 경로탐색 입력은 만들 수 있지만, 최소시간·최소에너지 라우팅 로직 자체는 별도 단계입니다.
 - 서울 링크 추출 기준(bbox → 행정경계), 속도 데이터 매칭 방식과 그 배경, 캐시 무효화 시 주의사항 등은 모두 [data/README.md](data/README.md)에 정리되어 있습니다.
+>>>>>>> origin/main
