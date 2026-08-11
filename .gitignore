@@ -43,6 +43,11 @@ data/processed/**
 !data/processed/**/
 !data/processed/**/.gitkeep
 
+# Exception: eco-routing 결과 요약표(377B)는 보고서에 그대로 들어가는 결론 수치라
+# 매번 재생성하지 않고도 GitHub에서 바로 볼 수 있게 커밋한다. 같은 폴더의 다른
+# 산출물(route_comparison_*.csv 수 KB, routes_*.geojson 1~8MB)은 계속 제외한다.
+!data/processed/route_scenario_summary.csv
+
 # 학습된 모델 아티팩트도 크고, src/models/*.py로 재현 가능해서 데이터와 같은 원칙으로 제외.
 src/models/artifacts/**
 !src/models/artifacts/**/
