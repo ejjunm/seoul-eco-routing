@@ -48,6 +48,10 @@ data/processed/**
 # 산출물(route_comparison_*.csv 수 KB, routes_*.geojson 1~8MB)은 계속 제외한다.
 !data/processed/route_scenario_summary.csv
 
+# Model A/이웃속도 조회표도 같은 이유(재현 가능하지만 clone 직후 바로 쓸 수 있게)로 예외 커밋.
+!data/processed/model_a_lookup.parquet
+!data/processed/neighbor_speed_lookup.parquet
+
 # 학습된 모델 아티팩트도 크고 src/models/*.py로 재현 가능해 원칙적으로는 제외 대상이지만,
 # 팀원이 clone 직후 파이프라인 재실행 없이 바로 routing을 돌려볼 수 있도록 최종본만 예외로 커밋한다.
 src/models/artifacts/**
