@@ -16,7 +16,7 @@
 │   └── main.py         # Streamlit 기반 인터랙티브 대시보드 앱
 ├── src/
 │   ├── pipeline/       # 데이터 수집·정제(ETL) — 01~05, 아래 Scripts 참고
-│   ├── models/         # 모델 학습·평가 — 11_evaluate_speed_model.py
+│   ├── models/         # 모델 학습·평가 — 01_build_model_a.py, 02_build_model_bc.py
 │   ├── routing/        # 라우팅용 다운스트림 — 12/13(전 링크 스냅샷·예측), 15(에너지 비용)
 │   └── eda/            # 정식 승격된 진단/시각화 스크립트, maps.py (동적 지도 시각화/스냅샷 자동화)
 ├── experiments/        # 팀원 각자의 프로토타입·1회성 실험 코드(정식 반영 전 단계)
@@ -37,7 +37,7 @@
 │   ├── interim/        # pipeline 중간 산출물(seoul_link.*, seoul_link_attr.csv, seoul_link_dem_features.csv,
 │   │   │                 seoul_link_speed_5min_hourly.csv, weather_hsr_seoul_grid.npz, link_radar_grid_mapping.csv)
 │   │   └── notebook_cache/  # 노트북·experiments 전용 캐시(재실행하면 다시 생김, 자유롭게 삭제 가능)
-│   └── processed/      # seoul_link_dimension.csv, seoul_link_speed_fact.csv, seoul_all_link_eco_snapshot_{tm}.csv
+│   └── processed/      # seoul_link_dimension.csv, seoul_link_speed_fact.csv, seoul_all_link_eco_snapshot/, seoul_all_link_speed/, weather_snapshot/
 ├── docs/
 │   └── figures/
 │       ├── eda/       # 10번 노트북이 생성하는 보고서용 EDA 그래프
@@ -77,8 +77,8 @@
 | `src/pipeline/05_build_speed_fact.py` | 레이더 강수, 시간대별 교통량을 02번 결과에 결합한 속도 팩트 테이블(`seoul_link_speed_fact.csv`, 15,094,335행) 생성 |
 | `src/eda/maps.py` | 기존 정적 PNG 지도의 한계를 극복하기 위해 시각화 엔진과 데이터 연산 역할 분리. Folium(2D) 및 PyDeck(3D) 동적 지도 지원, 분위수 기반 지능형 색상 매핑(get_color_scheme), 시각화용 12/13/15번 순차 자동 실행 파이프라인(prepare_visualization_data)을 통해 최종 결합 스냅샷(seoul_all_link_eco_snapshot_{tm}.csv)을 생성 |
 | `src/models/11_evaluate_speed_model.py` | 원본 관측 누수를 막은 시간·공간 일반화 평가와 피처 중요도 저장 |
-| `src/12_build_all_link_weather_snapshot.py` | 특정 시각의 서울 전체 63,548개 링크 강수 스냅샷 생성 (아직 `src/` 루트 — 담당자 이동 대기) |
-| `src/routing/13_predict_all_link_speed.py` | 관측값 → 계층별 모델(B/C) → 계층적 fallback 순으로 전체 링크 속도·통행시간 생성 |
+| `src/routing/12_build_all_link_weather_snapshot.py` | 특정 시각의 서울 전체 63,548개 링크 강수 스냅샷 생성
+| `src/routing/13_predict_all_link_speed.py` | 사전 학습 아티팩트(model_nb.pkl, model_stat.pkl 등)를 로드해 추론 수행 → 계층적 fallback 순으로 전체 링크 속도·통행시간 생성 |
 | `src/routing/15_add_energy_cost.py` | 13번 속도 스냅샷 + 경사로 링크별 배터리 소비 에너지 계산 — **VT-CPEM**(Fiori et al. 2016), 기준차 닛산 리프 |
 | `src/routing/16_eco_route.py` | 링크 에너지를 간선 비용으로 써서 최단거리/최단시간/**에너지최적** 3경로를 비교. 경로 GeoJSON과 절감률 표 생성 |
 | `app/main.py` | Streamlit 대시보드 구축 및 동적 UI 제어: maps.py가 사전 연산한 스냅샷을 활용한 실시간 대시보드. 컨트롤 패널(날짜/시간/기준변수 선택), 3D PyDeck 탭(경사도 Z축 렌더링), 2D Folium 탭(도로 클릭 시 툴팁 상세 속성 조회), 다중 속성 테이블 탐색기(도로명 필터링) 제공 |
@@ -116,8 +116,8 @@
 
 | 스크립트 | 상태 |
 | --- | --- |
-| `12_build_all_link_weather_snapshot.py` | ✅ 실행됨 — 입력 경로를 `interim/`으로 갱신. 파일은 아직 `src/` 루트에 있어 담당자가 `src/routing/`로 옮기면 됩니다 |
-| `routing/13_predict_all_link_speed.py` | ✅ 새 스키마(dimension+fact)로 재작성 · 계층별 모델 적용 |
+| `routing/12_build_all_link_weather_snapshot.py` | ✅ 이동 및 최적화 완료 — src/routing/ 이동, C-레벨 정규식 제거/NumPy/Polars 엔진 도입으로 고속화, data/processed/weather_snapshot/ 폴더화 및 멱등성 확립 |
+| `routing/13_predict_all_link_speed.py` | ✅ 최신 모델 및 새 스키마(dimension+fact) 적용 · 사전 학습 아티팩트 기반 빠른 추론 · Polars 고속화 및 Feature 정렬 최적화 |
 | `routing/15_add_energy_cost.py` | ✅ VT-CPEM(Fiori et al. 2016)으로 재작성 · 기준차 닛산 리프 |
 | `routing/16_eco_route.py` | ✅ 신규 — 5개 시각 실행 완료 |
 | `models/11_evaluate_speed_model.py` | ❌ 미이전 — 삭제된 `seoul_link_speed_dem_weather_merged.csv`를 직접 가리킵니다. 파일도 아직 `src/` 루트에 있습니다 |
@@ -284,15 +284,14 @@ python src\pipeline\05_build_speed_fact.py
 python src\11_evaluate_speed_model.py --spatial-folds 5 --n-estimators 200
 
 # 예: 2026-07-16 08:00 서울 전 링크 예측
-python src\12_build_all_link_weather_snapshot.py --tm 202607160800
-python src\13_predict_all_link_speed.py --tm 202607160800 --train-end 20260715
+python src\routing\12_build_all_link_weather_snapshot.py --tm 202607160800
+python src\routing\13_predict_all_link_speed.py --tm 202607160800
 python src\15_add_energy_cost.py --tm 202607160800
 
 python -m nbconvert --to notebook --execute --inplace notebooks\10_eda_report.ipynb
 python -m nbconvert --to notebook --execute --inplace notebooks\11_speed_model_baseline.ipynb
 ```
 
-`11`/`12`/`13`/`15`는 위 "주의"에서 설명한 대로 지금 그대로 실행하면 오류가 납니다(`11`·`13`은 옛 병합 파일 직접 참조, `12`·`15`는 `data/processed/`에서 `data/interim/`으로 옮겨진 파일을 계속 옛 경로로 찾음) — 각 스크립트의 입력 경로를 새로 옮긴 뒤에만 유효한 명령입니다.
 
 가상환경을 활성화하지 않고 실행할 때:
 
