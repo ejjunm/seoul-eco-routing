@@ -1,0 +1,8 @@
+# 로컬 에코 라우팅 대시보드와 경로 엔진
+fastapi
+uvicorn[standard]
+pandas
+numpy
+pyarrow
+geopandas
+shapely
