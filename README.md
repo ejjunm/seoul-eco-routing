@@ -26,14 +26,14 @@
 ```text
 .
 ├── app/
-│   └── main.py         # Streamlit 기반 인터랙티브 대시보드 앱
+│   ├── server.py        # FastAPI 기반 에코 라우팅 대시보드 백엔드(uvicorn app.server:app)
+│   └── static/          # Vanilla JS/HTML/CSS 프론트엔드(index.html, app.js, styles.css)
 ├── src/
 │   ├── pipeline/       # 데이터 수집·정제(ETL) — 01~05, 아래 Scripts 참고
 │   ├── models/         # 모델 학습·평가 — 01_build_model_a.py, 02_build_model_bc.py
 │   ├── routing/        # 경로탐색 — engine.py(Dijkstra), 01(단일 OD 비교), 02(다중 OD 시나리오), 12(강수 스냅샷 보조)
-│   └── eda/            # 정식 승격된 진단/시각화 스크립트, maps.py (동적 지도 시각화/스냅샷 자동화)
+│   └── eda/            # 관측/예측 EDA·하이브리드 구축 스크립트(구 10번 노트북 기능을 흡수)
 ├── notebooks/
-│   ├── 10_eda_report.ipynb        # 주의: 재정비 필요, 아래 Notebooks 참고
 │   ├── 01_speed_model_baseline.ipynb  # 주의: 재정비 필요, 아래 Notebooks 참고
 │   ├── 02_derived_features_lightgbm.ipynb  # 파생/외부 피처 검증
 │   ├── 03_model_a_history.ipynb   # 관측 링크용 이력 모델
@@ -52,7 +52,7 @@
 │   └── processed/      # seoul_link_dimension.csv, seoul_link_speed_fact.csv, seoul_all_link_eco_snapshot/, seoul_all_link_speed/, weather_snapshot/
 └── docs/
     └── figures/
-        ├── eda/       # 10번 노트북이 생성하는 보고서용 EDA 그래프
+        ├── observed_speed_eda/, observed_speed_energy_eda/, observed_vs_lookup/, speed_energy_eda/, network/  # src/eda/*.py가 생성하는 보고서용 EDA 그래프(총 39개, 구 eda/ 폴더 대체)
         ├── model/     # 01/02번 노트북이 생성하는 속도 예측 모델 그래프
         └── model_a/   # 03_model_a_history 노트북이 생성하는 그래프
 ```
@@ -190,26 +190,26 @@ Model B에는 **서울 전체 링크에서 예측 시점에도 얻을 수 있는
 
 ## Notebooks
 
+과거 `10_eda_report.ipynb`(강수·경사·도로등급·첨두시간대 EDA 리포트)는 삭제되었고, 그 기능은 `src/eda/observed_speed_eda.py`·`observed_energy_eda.py`·`compare_observed_lookup_and_build_hybrid.py`·`14_speed_energy_eda.py`로 흡수·확장되어 총 39개 그림을 생성합니다(자세한 내용은 [EDA_GUIDE.md](docs/EDA_GUIDE.md)).
+
 | Notebook | Description |
 | --- | --- |
-| `10_eda_report.ipynb` | 최종 결합 테이블을 입력으로 강수량·경사도·도로등급·첨두시간대별 평균속도 EDA 테이블과 차트를 생성하는 리포트. 집계 테이블은 셀 출력으로 바로 보여주고, 보고서용 차트 7장만 `docs/figures/eda/`에 저장 |
 | `01_speed_model_baseline.ipynb` | 초기 LightGBM 베이스라인과 랜덤/그룹 분할 비교 |
 | `02_derived_features_lightgbm.ipynb` | 파생/외부 피처(버스전용차로 겹침비율, View-T 추정교통량, 순환 인코딩, 인접 실측 이웃속도)를 LightGBM/XGBoost로 빠르게 검증하는 핵심 노트북(5차~16차) |
 | `03_model_a_history.ipynb` | 관측 링크(Model A)용 이력 모델 — 링크×시간×주중/주말 조회표와 lag 피처 비교. 여기서 검증된 시간분할 설계를 `src/models/01_build_model_a.py`가 그대로 이어받음 |
 | `04_tier_split_evaluation.ipynb` | 링크를 A(관측)/B(미관측·이웃있음)/C(미관측·이웃없음)로 나눠 계층별로 성능을 재측정. 인접 이웃속도 피처가 C 계층에서 성능을 떨어뜨리는 문제와 분리 모델 해결책을 검증 — `02_derived_features_lightgbm.ipynb`와 `src/models/02_build_model_bc.py`가 이 결론을 이어받음 |
 
-**주의**: `10`/`01` 두 노트북은 예전 T-data 기반 컬럼(`도로방향구분코드`, `도로구분코드`, `요일코드`, `요일그룹코드`, `첨두시구분`, `도로명`, `시작노드명`/`종료노드명`, `broadcast_source_count` 등)을 참조합니다. 5분 데이터 기반 파이프라인으로 바뀌면서 이 컬럼들이 최종 테이블에서 전부 빠졌기 때문에(대신 `sample_count_5min`이 생김), **지금 상태로 재실행하면 오류가 납니다.** `요일`/`첨두시구분`류는 `기준일`/`시간코드`로 직접 계산해서 대체할 수 있지만, `도로구분코드`(TOPIS 자체 간선/이면 분류)는 5분 데이터에 대응 정보가 없어 복원이 안 됩니다. 재실행 전에 두 노트북의 피처 목록을 새 스키마에 맞게 다시 정비해야 합니다.
+**주의**: `01` 노트북은 예전 T-data 기반 컬럼(`도로방향구분코드`, `도로구분코드`, `요일코드`, `요일그룹코드`, `첨두시구분`, `도로명`, `시작노드명`/`종료노드명`, `broadcast_source_count` 등)을 참조합니다. 5분 데이터 기반 파이프라인으로 바뀌면서 이 컬럼들이 최종 테이블에서 전부 빠졌기 때문에(대신 `sample_count_5min`이 생김), **지금 상태로 재실행하면 오류가 납니다.** `요일`/`첨두시구분`류는 `기준일`/`시간코드`로 직접 계산해서 대체할 수 있지만, `도로구분코드`(TOPIS 자체 간선/이면 분류)는 5분 데이터에 대응 정보가 없어 복원이 안 됩니다. 재실행 전에 이 노트북의 피처 목록을 새 스키마에 맞게 다시 정비해야 합니다.
 
 노트북을 실행하려면:
 
 ```bat
-jupyter lab notebooks\10_eda_report.ipynb
+jupyter lab notebooks\01_speed_model_baseline.ipynb
 ```
 
 또는 커널 없이 일괄 실행 후 저장하려면:
 
 ```bat
-python -m nbconvert --to notebook --execute --inplace notebooks\10_eda_report.ipynb
 python -m nbconvert --to notebook --execute --inplace notebooks\01_speed_model_baseline.ipynb
 python -m nbconvert --to notebook --execute --inplace notebooks\04_tier_split_evaluation.ipynb
 ```
