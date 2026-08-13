@@ -348,13 +348,16 @@ python src/models/04_batch_predict_all_link_speed.py --start-date 20260707 --end
 python src/energy/02_batch_compute_link_energy.py --start-date 20260707 --end-date 20260720
 python src/energy/03_compute_observed_speed_energy.py --start-date 20260707 --end-date 20260720 --exclude-tm 202607070000
 
-python src/routing/02_evaluate_route_scenarios.py --timestamps 202607160800 --max-pairs 30
-
 python src/eda/01_observed_speed_eda.py
 python src/eda/02_observed_energy_eda.py
 python src/eda/03_compare_observed_lookup_and_build_hybrid.py
+
+python src/routing/02_evaluate_route_scenarios.py --timestamps 202607160800 --max-pairs 30
+
 python src/eda/04_speed_energy_eda.py --start-date 20260707 --end-date 20260720
 ```
+
+라우팅(`src/routing/02_evaluate_route_scenarios.py`)은 인자 없이 실행하면 `--dataset hybrid`가 기본값이며, 이는 `data/processed/historical_hybrid_link_energy/`를 읽습니다. 이 폴더는 `src/eda/03_compare_observed_lookup_and_build_hybrid.py`가 만들므로, 위 순서(EDA 03번 → 라우팅)를 지켜야 합니다. `--dataset prediction`으로 실행하면 `data/processed/link_energy/`만 있으면 되므로 에너지 단계 직후에 바로 실행할 수 있습니다.
 
 지도 의존성이 없거나 빠른 재생성이 필요하면 EDA 스크립트에 `--skip-maps`를 사용할 수 있습니다. 기존 산출물을 덮어쓸 때만 각 스크립트의 `--overwrite`를 명시합니다.
 

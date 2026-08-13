@@ -99,7 +99,7 @@ def meta() -> dict:
     return {
         "timestamps": timestamps,
         "places": PLACES,
-        "default_tm": "202607160800" if "202607160800" in timestamps else timestamps[0],
+        "default_tm": "202607160800" if "202607160800" in timestamps else (timestamps[0] if timestamps else None),
         "datasets": {
             "hybrid": "과거 재현: 해당 시점 A 관측 + B/C 예측",
             "prediction": "이력 예측: A lookup + B/C 예측",

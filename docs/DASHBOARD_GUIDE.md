@@ -2,6 +2,8 @@
 
 ## 실행
 
+`data/interim/seoul_link.shp`와 `data/processed/historical_hybrid_link_energy/*.parquet`가 있어야 동작합니다. 둘 다 `.gitignore` 대상이라 clone 직후에는 없으므로, 먼저 [README Quickstart](../README.md#quickstart)의 1~4단계를 실행해 만들어야 합니다.
+
 ```powershell
 uvicorn app.server:app --reload
 ```

@@ -33,14 +33,7 @@ FastAPI 기반 대시보드(`app/`)에서 출발지·목적지를 입력해 세 
 
 ## Quickstart
 
-```powershell
-# 대시보드만 바로 보려면 (사전 산출물이 이미 있는 경우)
-pip install -r requirements-dashboard.txt
-uvicorn app.server:app --reload
-# http://127.0.0.1:8000
-```
-
-전체 파이프라인을 처음부터 재현하려면:
+원자료부터 전부 다시 만든다는 전제의 순서입니다. 대시보드와 라우팅은 각각 필요한 산출물이 먼저 만들어져 있어야 하므로, 아래 순서를 바꾸면 안 됩니다.
 
 ```powershell
 # 1. 원자료 가공
@@ -60,17 +53,22 @@ python src/models/04_batch_predict_all_link_speed.py --start-date 20260707 --end
 python src/energy/02_batch_compute_link_energy.py --start-date 20260707 --end-date 20260720
 python src/energy/03_compute_observed_speed_energy.py --start-date 20260707 --end-date 20260720 --exclude-tm 202607070000
 
-# 4. 라우팅(Dijkstra + Pareto 균형경로)
-python src/routing/02_evaluate_route_scenarios.py --timestamps 202607160800 --max-pairs 30
-
-# 5. EDA(관측/예측/하이브리드, 총 39개 그림)
+# 4. EDA(관측/예측/하이브리드, 총 39개 그림) — 03이 라우팅·대시보드가 읽는 historical_hybrid_link_energy/를 생성
 python src/eda/01_observed_speed_eda.py
 python src/eda/02_observed_energy_eda.py
 python src/eda/03_compare_observed_lookup_and_build_hybrid.py
 python src/eda/04_speed_energy_eda.py --start-date 20260707 --end-date 20260720
+
+# 5. 라우팅(Dijkstra + Pareto 균형경로) — 4번 산출물이 있어야 실행 가능(기본값이 historical_hybrid_link_energy/를 읽음)
+python src/routing/02_evaluate_route_scenarios.py --timestamps 202607160800 --max-pairs 30
+
+# 6. 대시보드 — data/interim/seoul_link.shp(1번)와 historical_hybrid_link_energy/(4번)가 있어야 뜸
+pip install -r requirements-dashboard.txt
+uvicorn app.server:app --reload
+# http://127.0.0.1:8000
 ```
 
-대용량 단계는 이미 산출물이 있으면 재실행할 필요가 없습니다. 각 단계의 입력·출력·설계 근거는 **[방법론과 코드 파이프라인](docs/METHODS_AND_PIPELINE.md)**을 참고하세요.
+`data/`를 통째로 전달받는 등 산출물이 이미 있는 경우에는 앞 단계를 재실행할 필요 없이 6번(대시보드)이나 5번(라우팅)으로 바로 건너뛸 수 있습니다. 다만 이 저장소를 새로 clone한 상태에서는 `.gitignore`로 대부분의 `data/` 산출물이 제외되어 있어(예외는 `src/models/artifacts/`의 학습된 모델 2종과 `data/processed/`의 조회표 2종뿐) 위 순서를 처음부터 실행해야만 라우팅과 대시보드가 동작합니다. 각 단계의 입력·출력·설계 근거는 **[방법론과 코드 파이프라인](docs/METHODS_AND_PIPELINE.md)**을 참고하세요.
 
 ## Project Structure
 
