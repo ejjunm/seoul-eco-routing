@@ -178,6 +178,16 @@ A/B/C는 경사도 등급이 아니라 **그 링크에 사용할 수 있는 속�
 
 XGBoost 설정은 `reg:squarederror`, 300 trees, learning rate 0.05, max depth 8, histogram tree, native categorical, random seed 42입니다. `sample_count_5min`을 학습 가중치로 주어 관측이 더 충실한 시간대를 더 신뢰합니다.
 
+#### 알고리즘 선택
+
+`01_speed_model_baseline.ipynb`에서 도로 속성 23개(파생 피처 없음)·무작위 분할 조건으로 전체평균(R²=0.000), 제한속도 선형회귀(0.172), 도로등급별 평균(0.266), LightGBM(0.610), XGBoost(0.632), CatBoost(0.556)를 비교해 트리 모델의 우위와 XGBoost의 근소한 우위를 먼저 확인했습니다. 이후 `02_derived_features_lightgbm.ipynb`에서 파생 피처 포함 60개 피처·링크 단위 GroupKFold로 LightGBM(0.737)과 XGBoost(0.740)를 다시 비교해 같은 결론을 재현했고, 두 알고리즘 모두 하이퍼파라미터는 기본값으로 통일했습니다. 베이스라인 대비 최종 모델의 성능 격차(0.632→0.740)는 알고리즘 선택보다 피처 엔지니어링(도로망 위상·이웃속도·View-T 등)의 기여가 훨씬 컸음을 보여줍니다.
+
+#### 피처 중요도
+
+피처 중요도는 gain(트리 분기 시 손실 개선량) 대신 **SHAP**(Shapley value, TreeSHAP)으로 산출합니다. gain은 상관된 피처 간 기여도가 왜곡될 수 있습니다 — 예를 들어 초기 피처 구성에서 `REST_VEH`(통행제한차종)의 gain은 71%에 달했지만, 도로망 위상·이웃속도 등 구조 피처를 추가한 최종 모델에서는 1.4%로 급락했습니다. 다른 피처가 없을 때 `REST_VEH`가 실제 원인 변수의 정보를 간접적으로 대신 나르고 있었다는 뜻이며, gain만으로는 이런 맥락 의존성을 알 수 없습니다.
+
+B 계층 표본 20,000행 기준 SHAP 상위 피처는 이웃 도로 속도(35.6%), 시간대별 평균 속도/View-T(7.2%), 동일 도로명 구간 길이/코리도(4.6%), 시간대(3.3%), 진입차로수 평균(3.1%), 제한속도×차로수(3.0%) 순입니다. 이웃 도로 속도 하나가 전체 기여도의 1/3 이상이며, 값이 높을수록 예측 속도도 함께 상승하는 방향성까지 SHAP에서 확인됩니다(gain에는 이런 방향 정보가 없습니다). 요약 플롯은 `docs/figures/model/07_shap_summary.png`, 계층별 검증 R² 막대는 `docs/figures/model/09_bc_groupkfold_r2.png`에 있습니다.
+
 #### 검증과 최종 학습
 
 - `--mode validate`: 링크 단위 3-fold GroupKFold. 같은 링크가 train/test 양쪽에 들어가지 않으며, 매 fold의 이웃 조회표도 train 링크만으로 다시 만듭니다.
@@ -209,7 +219,7 @@ XGBoost 설정은 `reg:squarederror`, 300 trees, learning rate 0.05, max depth 8
 
 한 시점 코드를 335번 단순 실행하지 않고, 공통 정적 피처와 동적 프로필을 재사용합니다. 레이더 원본이 실제로 존재하고 날짜 범위에 들어가는 시점만 처리하며 기존 출력은 기본적으로 건너뜁니다. 현재 335개 CSV가 모두 생성되어 있고 각 파일은 63,548행, 속도 결측 0건입니다.
 
-### 4.6 강수 스냅샷 보조: `src/12_build_all_link_weather_snapshot.py`
+### 4.6 강수 스냅샷 보조: `src/routing/12_build_all_link_weather_snapshot.py`
 
 한 시점 HSR 레이더를 모든 링크 중심점에 붙여 `seoul_all_link_weather_{tm}.csv`를 만듭니다. `models/03`의 기본 날씨 입력이며, `models/04`는 같은 로직을 기간 전체에 효율적으로 내장해 사용합니다.
 
@@ -279,6 +289,7 @@ E = Pbattery × Δt
 | `src/eda/observed_energy_eda.py` | observed speed energy | 관측속도 기반 에너지 EDA 9종 |
 | `src/eda/compare_observed_lookup_and_build_hybrid.py` | A actual + A lookup + 전 링크 energy | A 오차 EDA 5종과 과거 하이브리드 335개 |
 | `src/eda/14_speed_energy_eda.py` | 전 링크 predicted energy 335개 | A/B/C 예측속도·에너지·품질·공간 EDA 11종 |
+| `src/eda/plot_network_silhouette.py` | seoul_link 도로망 geometry | 속도·에너지 색 없는 63,548개 링크 실루엣 지도(보고서용 기본 지도) |
 
 하이브리드 파일의 선택 우선순위는 다음과 같습니다.
 
@@ -290,19 +301,33 @@ E = Pbattery × Δt
 
 따라서 `historical_hybrid_link_energy`는 과거 상황을 최대한 실제 A로 재구성하는 분석용 데이터입니다. 미래 예측에는 사용할 수 없습니다.
 
-## 7. 라우팅의 정확한 의미와 현재 상태
+## 7. 라우팅(Stage 3): `src/routing/engine.py`
 
-라우팅은 도로망을 방향 그래프로 만들고, 같은 출발지·목적지에 대해 간선 비용을 바꿔 최적 경로를 찾는 단계입니다.
+라우팅은 도로망을 `F_NODE→T_NODE` 방향 그래프로 만들고, 같은 출발지·목적지에 대해 간선 비용을 바꿔 Dijkstra로 최적 경로를 찾는 단계입니다. `EcoRoutingEngine`(`src/routing/engine.py`)이 그래프 구축·좌표 스냅·최단경로 탐색을 담당합니다.
 
 | 경로 | 간선 비용 | 의미 |
 | --- | --- | --- |
-| 최단거리 | `LENGTH` | 물리적 이동거리 최소 |
-| 최단시간 | `travel_time_sec` | 해당 시점 예상 통행시간 최소 |
-| 에너지최소 | `energy_ev_j` | Nissan Leaf 추정 배터리 에너지 최소 |
+| 최단거리(`shortest`) | `LENGTH` | 물리적 이동거리 최소 |
+| 최단시간(`fastest`) | `travel_time_sec` | 해당 시점 예상 통행시간 최소 |
+| 에너지최소(`eco`) | `energy_ev_j` | Nissan Leaf 추정 배터리 에너지 최소 |
+| 균형(`balanced`) | 시간 제약 내 에너지최소 | 최단시간 대비 지연 상한 안에서 에너지 최소화 |
 
-이 비교는 과거 `src/routing/16_eco_route.py`에서 수행되었고, F_NODE→T_NODE 방향 그래프, 중복 간선 정리, 최대 강연결요소, POI 스냅, 최단경로 탐색, CSV/GeoJSON 저장 구조를 사용했습니다. 그러나 해당 파일과 최종 `route_scenario_summary.csv`는 정리 요청으로 현재 작업 트리에 없습니다. 즉 라우팅 분석 이력은 있으나 현재 공식 파이프라인만으로 그 결과를 즉시 재생산할 수 없는 재현성 공백이 있습니다.
+무제약 에코 경로는 시간 증가를 고려하지 않으므로, `energy_route_with_time_limit`(Pareto label-setting)이 최단시간 대비 허용 지연율(기본 15%) 안에서 에너지를 최소화하는 균형 경로를 추가로 탐색합니다(`compare_with_balanced`).
 
-남아 있는 `experiments/eco_routing*.py`는 오래된 내연기관 에너지 근사와 옛 파일 경로를 사용하므로 현재 EV 결과의 공식 코드로 간주하지 않습니다.
+- 단일 OD 비교: `src/routing/01_route_compare.py`
+- 대표 지점 다중 OD 평가: `src/routing/02_evaluate_route_scenarios.py --timestamps <tm 목록> --max-pairs 30 --max-time-increase-pct 15`
+  - 강남역·서울시청·여의도·잠실역·홍대입구·청량리·구로디지털단지·서울대입구·사당 9개 POI 조합 중 최대 30개 OD
+  - 기본 입력은 `historical_hybrid_link_energy_{tm}.parquet`(`--dataset hybrid`), 예측만 쓰려면 `--dataset prediction`
+  - 출력은 `data/processed/route_results/`에 저장
+
+2026-07-16 08:00 스냅샷·대표 30개 OD 기준 결과는 다음과 같습니다.
+
+| 경로 | 평균 에너지 절감 | 평균 시간 증가 |
+| --- | ---: | ---: |
+| 무제약 최소에너지 | 12.389% | 20.256% |
+| 15% 지연 상한 균형경로 | 8.294% | 8.152% |
+
+과거 `src/routing/16_eco_route.py`와 그 산출물 `route_scenario_summary.csv`는 정리되어 현재 트리에 없지만, 같은 비교는 현재 `engine.py` + `01_route_compare.py`/`02_evaluate_route_scenarios.py`로 재현 가능합니다.
 
 ## 8. 실행 순서
 
@@ -323,6 +348,8 @@ python src/models/04_batch_predict_all_link_speed.py --start-date 20260707 --end
 python src/energy/02_batch_compute_link_energy.py --start-date 20260707 --end-date 20260720
 python src/energy/03_compute_observed_speed_energy.py --start-date 20260707 --end-date 20260720 --exclude-tm 202607070000
 
+python src/routing/02_evaluate_route_scenarios.py --timestamps 202607160800 --max-pairs 30
+
 python src/eda/observed_speed_eda.py
 python src/eda/observed_energy_eda.py
 python src/eda/compare_observed_lookup_and_build_hybrid.py
@@ -341,19 +368,9 @@ python src/eda/14_speed_energy_eda.py --start-date 20260707 --end-date 20260720
 
 결정 과정과 비교 실험을 보여 주는 연구 기록입니다. 출력 성능을 그대로 배포 성능으로 간주하지 않고 [NOTEBOOK_AUDIT.md](NOTEBOOK_AUDIT.md)의 조건을 함께 봐야 합니다.
 
-### `experiments/` 전수 분류
+### `experiments/`
 
-| 파일 | 과거 용도 | 현재 사용 여부 |
-| --- | --- | --- |
-| `build_official_17pct.py` | 구 T-data 공식매핑 17.33% 자료 구축 | 사용 안 함; 5분 원자료 파이프라인으로 대체 |
-| `build_structural_features.py` | 옛 속성·DEM에서 구조 피처 생성 | 사용 안 함; pipeline/04로 통합 |
-| `speed_model_lab.py` | 여러 split/feature 실험을 `results.csv`에 누적 | 연구 이력만 참고 |
-| `eval_protocols.py` | 시간/공간 평가 프로토콜 비교 | 연구 이력만 참고 |
-| `fill_all_speeds.py` | 옛 전 링크 속도 보완 | models/03~04로 대체 |
-| `eco_routing.py` | 관측 그래프의 옛 ICE 에너지 경로 실험 | 현재 Nissan Leaf 결과로 사용 금지 |
-| `eco_routing_global.py` | 옛 전역 속도 파일 기반 ICE 경로 실험 | 현재 입력 경로와 스키마가 달라 사용 금지 |
-| `verify_02_aggregate.py` | 5분→시간 집계 결과 점검 | 보조 진단용 |
-| `results.csv`, `eco_routes.csv` | 당시 실험 로그와 6개 OD 결과 | 역사적 참고자료 |
+팀원 각자의 프로토타입·1회성 실험 코드가 있었으나, 어떤 공식 코드에서도 import/실행되지 않고 옛 파이프라인 경로(구 T-data 매핑, 옛 ICE 에너지 근사 등)만 참조하는 것을 확인해 저장소에서 삭제했습니다. `build_structural_features.py`의 구조 피처 아이디어는 `pipeline/04`로, `fill_all_speeds.py`의 전 링크 속도 보완은 `models/03~04`로 이미 흡수됐습니다.
 
 ## 10. 재현성·해석상 한계
 
@@ -365,4 +382,4 @@ python src/eda/14_speed_energy_eda.py --start-date 20260707 --end-date 20260720
 6. 에너지 모델은 평균속도 일정, 가속도 0, 회생제동 없음, 단일 차량·효율·보조전력 고정이라는 단순화가 있습니다.
 7. 에너지는 차량 계측값으로 검증되지 않았습니다.
 8. 강수 EDA는 관찰적 연관성이며 사고·공사·시간대·도로등급 같은 혼란변수를 완전히 통제한 인과효과가 아닙니다.
-9. 현재 EV 라우팅 실행 코드가 제거되어 과거 경로 결과의 완전한 재현성이 부족합니다.
+9. 라우팅은 선택한 시각의 정적 스냅샷 기준이며, 신호대기·교차로 회전비용·공사·통제·실시간 교통 변화를 반영하지 않는 연구용 경로 비교 프로토타입입니다.

@@ -10,11 +10,18 @@
 
 ### 핵심 결과
 
-기록된 초기 XGBoost 기준은 대략 다음과 같습니다.
+도로 속성 23개(파생 피처 없음)·무작위 분할 조건에서 규칙 기반 방법과 트리 모델 6종을 비교했습니다.
 
-- R²: 0.6319
-- MAE: 5.584 km/h
-- RMSE: 7.436 km/h
+| 방법 | R² |
+| --- | ---: |
+| 전체 평균 | 0.000 |
+| 제한속도 선형회귀 | 0.172 |
+| 도로등급별 평균 | 0.266 |
+| LightGBM | 0.610 |
+| XGBoost | 0.6319 |
+| CatBoost | 0.556 |
+
+XGBoost 기록: MAE 5.584 km/h, RMSE 7.436 km/h.
 
 ### 해석
 
@@ -155,10 +162,10 @@
 ## 5. 노트북 결과를 보고서에 배치하는 순서
 
 1. 관측속도 EDA로 실제 현상을 먼저 제시합니다.
-2. `11`로 비선형 부스팅 알고리즘 선택 배경을 짧게 설명합니다.
-3. `12_derived`로 피처 개발과 이웃속도 효과를 설명합니다.
-4. `13_tier`로 B/C 분리 설계를 정당화합니다.
-5. `12_model_a`로 관측 이력이 있는 링크에 별도 A lookup을 쓰는 이유를 설명합니다.
+2. `01_speed_model_baseline`로 비선형 부스팅 알고리즘 선택 배경을 짧게 설명합니다.
+3. `02_derived_features_lightgbm`로 피처 개발과 이웃속도 효과를 설명합니다.
+4. `04_tier_split_evaluation`로 B/C 분리 설계를 정당화합니다.
+5. `03_model_a_history`로 관측 이력이 있는 링크에 별도 A lookup을 쓰는 이유를 설명합니다.
 6. 마지막에 공식 코드의 배포 정의와 검증 결과를 별도 표로 제시합니다.
 
 이 순서를 쓰면 “관측 데이터에서 무엇을 보았는가 → 어떤 모델을 선택했는가 → 왜 계층화했는가 → 실제로 무엇을 배포했는가”가 자연스럽게 이어집니다.
@@ -190,7 +197,13 @@
 | `04_derived_features_comparison_v2.png`~`v5.png` | 후속 8~16차 구성 비교 | 최종 구성으로 좁혀 가는 ablation 기록 |
 | `docs/figures/model/04_predicted_vs_actual.png` | 후속/최종 실험 산점도 | 실험용 동시점 이웃 조건임을 캡션에 표시 |
 | `docs/figures/model/05_tier_abc_size.png` | 노트북 당시 A/B/C 링크 수 | 현재 배포 B/C 수와 다름을 함께 표기 |
-| `docs/figures/model/06_tier_bc_r2.png` | B/C 계층별 이웃 피처 효과와 R² | 두 모델 분리의 핵심 증거 |
+| `docs/figures/model/06_tier_bc_r2.png` | B/C 계층별 이웃 피처 효과와 R²(노트북 당시 링크 랜덤분할·공간블록분할 실험) | 두 모델 분리의 핵심 증거; 현재 배포 R²(0.741/0.315)와 수치는 다름 |
+| `docs/figures/model/07_shap_summary.png` | 공식 Model B의 SHAP 요약 플롯(상위 20개, 방향성 포함) | 최종 피처 중요도 — gain 대신 우선 사용 |
+| `docs/figures/model/08_shap_bar.png` | 공식 Model B의 SHAP 상위 15개 막대 | gain 그림과 나란히 비교 시 사용 |
+| `docs/figures/model/09_bc_groupkfold_r2.png` | 공식 배포 정의(버킷 이웃)의 B/C 계층별 GroupKFold R² | 06번과 달리 실제 배포 기대성능 |
+| `docs/figures/model/10_overview_pipeline.png` | 원천 데이터 → Stage 1/2/3 파이프라인 개요 다이어그램 | Overview/Method 도입부 |
 | `docs/figures/model_a/01_model_a_comparison.png` | 링크평균, 시간대 lookup, 계획/실시간 모델 비교 | 단순 A lookup 선택 근거 |
 
-`model/02_feature_importance.png`와 `03_feature_importance.png` 같은 tree importance는 예측 기여의 방향이나 인과효과를 뜻하지 않습니다. “많이 사용된 분할 변수” 정도로 설명하고, 방향성은 관측 EDA 또는 별도의 SHAP/부분의존 분석으로 확인해야 합니다.
+`model/02_feature_importance.png`와 `03_feature_importance.png` 같은 tree importance(gain)는 예측 기여의 방향이나 인과효과를 뜻하지 않으며, 상관된 피처 간 기여도가 왜곡될 수 있습니다(예: 초기 피처 구성에서 `REST_VEH`의 gain이 71%였으나 구조 피처 추가 후 1.4%로 급락). “많이 사용된 분할 변수” 정도로만 설명해야 합니다.
+
+방향성까지 포함한 최종 피처 중요도는 SHAP(TreeSHAP, B 계층 표본 20,000행)으로 별도 산출했습니다 — `docs/figures/model/07_shap_summary.png`(요약 플롯), `docs/figures/model/08_shap_bar.png`(상위 15개 막대). 이웃 도로 속도가 전체 기여도의 35.6%로 가장 크고, 값이 높을수록 예측 속도도 상승하는 방향성이 확인됩니다. 보고서의 “피처 중요도” 절에는 gain 그림 대신 이 SHAP 그림을 우선 사용하는 것을 권장합니다.

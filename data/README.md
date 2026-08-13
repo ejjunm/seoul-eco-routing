@@ -257,9 +257,9 @@ A actual과 lookup의 시간별 MAE/bias/RMSE, 피처별 오차, 하이브리드
 
 ## 11. 과거 파일과 현재 사용 여부
 
-- 삭제된 `route_scenario_summary.csv`: 사용자가 제외를 요청한 과거 라우팅 요약. 현재 분석 입력이 아닙니다.
-- 삭제된 `src/routing/13·15·16`: 옛 전 링크 예측·에너지·EV 라우팅 코드. 현재 속도와 에너지 생성은 `src/models/03~04`, `src/energy/01~03`이 담당합니다.
-- `experiments/eco_routes.csv`: 옛 ICE 근사 6개 OD 결과. Nissan Leaf VT-CPEM 최종 결과로 쓰지 않습니다.
+- 삭제된 `route_scenario_summary.csv`와 `src/routing/16_eco_route.py`: 옛 EV 라우팅 산출물·코드. 같은 비교는 현재 `src/routing/engine.py` + `01_route_compare.py`/`02_evaluate_route_scenarios.py`로 재현합니다.
+- 삭제된 `src/routing/13·15`: 옛 전 링크 예측·에너지 코드. 현재 속도와 에너지 생성은 `src/models/03~04`, `src/energy/01~03`이 담당합니다.
+- 삭제된 `experiments/`: 팀원 프로토타입 코드였으나 공식 코드 어디에서도 참조되지 않고 옛 경로만 가리켜 저장소에서 제거했습니다(`eco_routes.csv`의 옛 ICE 근사 6개 OD 결과 포함 — Nissan Leaf VT-CPEM 최종 결과로 쓰지 않습니다).
 - `notebook_cache/`: 연구 실험 캐시. 공식 결과 스키마가 아니며 삭제 후 재생성할 수 있습니다.
 
-라우팅은 과거 수행됐지만 현재 정확한 실행 파일과 최종 시나리오 CSV가 함께 남아 있지 않습니다. 이 사실은 “라우팅 미수행”이 아니라 “현재 완전 재현 불가”로 기록합니다.
+라우팅은 `src/routing/engine.py`(Dijkstra) 기반으로 현재 재현 가능합니다. 대표 30개 OD·2026-07-16 08:00 스냅샷 기준 무제약 최소에너지 경로는 평균 12.389% 에너지 절감(시간 +20.256%), 15% 지연 상한 균형경로는 평균 8.294% 절감(시간 +8.152%)입니다.

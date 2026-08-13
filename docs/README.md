@@ -37,6 +37,6 @@
 최단거리·최단시간·에너지최소 경로 비교는 과거에 실행되었습니다. 다만 사용자 요청에 따른 정리 과정에서 당시의 `src/routing/13·15·16`과 `route_scenario_summary.csv`가 현재 작업 트리에서는 제거되었습니다. 따라서 다음 두 문장은 동시에 참입니다.
 
 - **분석 이력:** 링크별 에너지 비용을 사용한 경로 비교는 수행되었다.
-- **현재 재현성:** 그때 사용한 정확한 EV 라우팅 실행 파일과 최종 시나리오 CSV는 현재 트리에 없어 같은 결과를 즉시 재실행할 수 없다.
+- **현재 재현성:** 당시 사용한 `src/routing/16_eco_route.py`와 `route_scenario_summary.csv`는 현재 트리에 없지만, 같은 비교는 `src/routing/engine.py`(Dijkstra) + `01_route_compare.py`/`02_evaluate_route_scenarios.py`로 재현 가능하다. 대표 30개 OD 기준 무제약 최소에너지 경로는 평균 12.389% 에너지 절감(시간 +20.256%), 15% 지연 상한 균형경로는 평균 8.294% 절감(시간 +8.152%)이다.
 
-`experiments/eco_routing.py`와 `experiments/eco_routes.csv`는 남아 있지만, 이는 현재 Nissan Leaf VT-CPEM 파이프라인이 아니라 과거 내연기관 근사 실험입니다. 최종 보고서의 EV 라우팅 근거와 혼용하면 안 됩니다.
+과거 `experiments/eco_routing.py`·`experiments/eco_routes.csv`(내연기관 근사 실험)는 공식 코드에서 참조되지 않아 저장소에서 삭제했다.
