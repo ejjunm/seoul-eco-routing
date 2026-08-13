@@ -77,7 +77,7 @@
 
 이는 노트북 피처와 실제 배포 피처 정의가 다르므로 부정확합니다.
 
-## 3. `12_model_a_history.ipynb`
+## 3. `12b_model_a_history.ipynb`
 
 ### 목적
 
