@@ -206,4 +206,4 @@ XGBoost 기록: MAE 5.584 km/h, RMSE 7.436 km/h.
 
 `model/02_feature_importance.png`와 `03_feature_importance.png` 같은 tree importance(gain)는 예측 기여의 방향이나 인과효과를 뜻하지 않으며, 상관된 피처 간 기여도가 왜곡될 수 있습니다(예: 초기 피처 구성에서 `REST_VEH`의 gain이 71%였으나 구조 피처 추가 후 1.4%로 급락). “많이 사용된 분할 변수” 정도로만 설명해야 합니다.
 
-방향성까지 포함한 최종 피처 중요도는 SHAP(TreeSHAP, B 계층 표본 20,000행)으로 별도 산출했습니다 — `docs/figures/model/07_shap_summary.png`(요약 플롯), `docs/figures/model/08_shap_bar.png`(상위 15개 막대). 이웃 도로 속도가 전체 기여도의 35.6%로 가장 크고, 값이 높을수록 예측 속도도 상승하는 방향성이 확인됩니다. 보고서의 “피처 중요도” 절에는 gain 그림 대신 이 SHAP 그림을 우선 사용하는 것을 권장합니다.
+방향성까지 포함한 최종 피처 중요도는 SHAP(TreeSHAP, B 계층 표본 20,000행)으로 별도 산출했습니다 — `docs/figures/model/07_shap_summary.png`(요약 플롯), `docs/figures/model/08_shap_bar.png`(상위 15개 막대), [`shap_importance.csv`](figures/model/shap_importance.csv)(61개 피처 전체의 `mean_abs_shap`·비중 원본 수치). 이웃 도로 속도가 전체 기여도의 35.6%로 가장 크고, 값이 높을수록 예측 속도도 상승하는 방향성이 확인됩니다. 보고서의 “피처 중요도” 절에는 gain 그림 대신 이 SHAP 그림을 우선 사용하는 것을 권장합니다.
