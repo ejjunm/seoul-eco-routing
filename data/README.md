@@ -80,7 +80,7 @@ KMA 원시 코드 `-25000`은 무강수 0mm, `-30000` 이하는 결측/영역 �
 | `weather_hsr_seoul_grid.npz` | HSR 격자 | pipeline/03·05 | 서울 주변 레이더 격자 캐시 |
 | `link_radar_grid_mapping.csv` | LINK_ID | pipeline/05 | 링크 중심점과 최근접 레이더 셀 매핑 |
 | `seoul_link_dem_features.csv` | LINK_ID | pipeline/04 | DEM 전용 중간 피처 |
-| `notebook_cache/` | 노트북별 | notebooks/experiments | 대용량 실험 재실행을 줄이는 캐시 |
+| `notebook_cache/` | 노트북별 | notebooks/ | 대용량 실험 재실행을 줄이는 캐시(현재는 `02_derived_features_lightgbm.ipynb`가 `nb12_*` 접두사로 생성) |
 
 중간 캐시는 원자료 또는 앞 단계가 바뀌면 다시 만들어야 합니다. 특히 링크 집합·geometry가 바뀌면 레이더 매핑 캐시를 재사용하면 안 됩니다.
 
