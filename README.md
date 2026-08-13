@@ -31,7 +31,7 @@
 ├── src/
 │   ├── pipeline/       # 데이터 수집·정제(ETL) — 01~05, 아래 Scripts 참고
 │   ├── models/         # 모델 학습·평가 — 01_build_model_a.py, 02_build_model_bc.py
-│   ├── routing/        # 경로탐색 — engine.py(Dijkstra), 01(단일 OD 비교), 02(다중 OD 시나리오), 12(강수 스냅샷 보조)
+│   ├── routing/        # 경로탐색 — engine.py(Dijkstra), 01(단일 OD 비교), 02(다중 OD 시나리오), build_all_link_weather_snapshot.py(강수 스냅샷 보조)
 │   └── eda/            # 관측/예측 EDA·하이브리드 구축 스크립트(구 10번 노트북 기능을 흡수)
 ├── notebooks/
 │   ├── 01_speed_model_baseline.ipynb  # 주의: 재정비 필요, 아래 Notebooks 참고
@@ -152,10 +152,10 @@ VT-CPEM은 프로젝트 원문 [에코라우팅.pdf](에코라우팅.pdf)를 따
 ### 5. EDA와 하이브리드
 
 ```powershell
-python src/eda/observed_speed_eda.py
-python src/eda/observed_energy_eda.py
-python src/eda/compare_observed_lookup_and_build_hybrid.py
-python src/eda/14_speed_energy_eda.py --start-date 20260707 --end-date 20260720
+python src/eda/01_observed_speed_eda.py
+python src/eda/02_observed_energy_eda.py
+python src/eda/03_compare_observed_lookup_and_build_hybrid.py
+python src/eda/04_speed_energy_eda.py --start-date 20260707 --end-date 20260720
 ```
 
 각 그림의 정확한 의미는 [EDA_GUIDE.md](docs/EDA_GUIDE.md)를 참고합니다.
@@ -190,7 +190,7 @@ Model B에는 **서울 전체 링크에서 예측 시점에도 얻을 수 있는
 
 ## Notebooks
 
-과거 `10_eda_report.ipynb`(강수·경사·도로등급·첨두시간대 EDA 리포트)는 삭제되었고, 그 기능은 `src/eda/observed_speed_eda.py`·`observed_energy_eda.py`·`compare_observed_lookup_and_build_hybrid.py`·`14_speed_energy_eda.py`로 흡수·확장되어 총 39개 그림을 생성합니다(자세한 내용은 [EDA_GUIDE.md](docs/EDA_GUIDE.md)).
+과거 `10_eda_report.ipynb`(강수·경사·도로등급·첨두시간대 EDA 리포트)는 삭제되었고, 그 기능은 `src/eda/01_observed_speed_eda.py`·`02_observed_energy_eda.py`·`03_compare_observed_lookup_and_build_hybrid.py`·`04_speed_energy_eda.py`로 흡수·확장되어 총 39개 그림을 생성합니다(자세한 내용은 [EDA_GUIDE.md](docs/EDA_GUIDE.md)).
 
 | Notebook | Description |
 | --- | --- |

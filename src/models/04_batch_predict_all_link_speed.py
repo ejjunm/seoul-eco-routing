@@ -24,7 +24,7 @@ PROCESSED = PROJECT_ROOT / "data" / "processed"
 RAW_RADAR = PROJECT_ROOT / "data" / "raw" / "weather" / "radar"
 ARTIFACTS = PROJECT_ROOT / "src" / "models" / "artifacts"
 PREDICTOR_PATH = PROJECT_ROOT / "src" / "models" / "03_predict_all_link_speed.py"
-WEATHER_BUILDER_PATH = PROJECT_ROOT / "src" / "12_build_all_link_weather_snapshot.py"
+WEATHER_BUILDER_PATH = PROJECT_ROOT / "src" / "routing" / "build_all_link_weather_snapshot.py"
 
 
 def load_module(name: str, path: Path):

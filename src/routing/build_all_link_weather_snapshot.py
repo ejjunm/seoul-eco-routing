@@ -9,8 +9,8 @@
 - 멱등성(Idempotency) 내장: 동일한 시각(tm)에 대해 스크립트를 여러 번 중복 실행하더라도, 시스템 오류 없이 해당 시각의 파일만 안전하게 덮어쓰기(Overwrite)를 수행하여 정합성을 유지합니다.
 
 [실행 방식]
-CLI 환경에서 KMA 시각(YYYYMMDDHHMM)을 파라미터로 전달하여 단독 실행하거나, 시각화 오케스트레이터(예: maps.py)에서 순차 연산을 위해 자동 호출합니다.
-- 실행 예시: python src/routing/12_build_all_link_weather_snapshot.py --tm 202607090800
+CLI 환경에서 KMA 시각(YYYYMMDDHHMM)을 파라미터로 전달하여 단독 실행하거나, `src/models/04_batch_predict_all_link_speed.py`가 배치 예측 시 자동 호출합니다.
+- 실행 예시: python src/routing/build_all_link_weather_snapshot.py --tm 202607090800
 
 [결과물 저장]
 - 저장 위치: data/processed/weather_snapshot/weather_snapshot_{tm}.csv

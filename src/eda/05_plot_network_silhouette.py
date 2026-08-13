@@ -5,7 +5,7 @@
 보여 주는 그림이다.
 
 사용:
-    python src/eda/plot_network_silhouette.py
+    python src/eda/05_plot_network_silhouette.py
 """
 from __future__ import annotations
 

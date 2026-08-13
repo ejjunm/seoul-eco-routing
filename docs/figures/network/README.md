@@ -9,5 +9,5 @@
 재생성 명령:
 
 ```powershell
-python src/eda/plot_network_silhouette.py
+python src/eda/05_plot_network_silhouette.py
 ```

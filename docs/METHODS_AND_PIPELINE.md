@@ -219,9 +219,9 @@ B 계층 표본 20,000행 기준 SHAP 상위 피처는 이웃 도로 속도(35.6
 
 한 시점 코드를 335번 단순 실행하지 않고, 공통 정적 피처와 동적 프로필을 재사용합니다. 레이더 원본이 실제로 존재하고 날짜 범위에 들어가는 시점만 처리하며 기존 출력은 기본적으로 건너뜁니다. 현재 335개 CSV가 모두 생성되어 있고 각 파일은 63,548행, 속도 결측 0건입니다.
 
-### 4.6 강수 스냅샷 보조: `src/routing/12_build_all_link_weather_snapshot.py`
+### 4.6 강수 스냅샷 보조: `src/routing/build_all_link_weather_snapshot.py`
 
-한 시점 HSR 레이더를 모든 링크 중심점에 붙여 `seoul_all_link_weather_{tm}.csv`를 만듭니다. `models/03`의 기본 날씨 입력이며, `models/04`는 같은 로직을 기간 전체에 효율적으로 내장해 사용합니다.
+한 시점 HSR 레이더를 모든 링크 중심점에 붙여 `seoul_all_link_weather_{tm}.csv`를 만듭니다. `models/03`의 기본 날씨 입력이며, `models/04`는 이 파일을 `importlib`로 직접 로드해 `parse_kma_ascii_grid`·`load_or_build_grid_mapping` 함수를 기간 전체 배치에 재사용합니다(로직 중복 없음).
 
 ## 5. 에너지 모델
 
@@ -285,11 +285,11 @@ E = Pbattery × Δt
 
 | 코드 | 입력 | 핵심 출력 |
 | --- | --- | --- |
-| `src/eda/observed_speed_eda.py` | speed fact + dimension | 관측속도 시간·도로·경사·강수·품질 EDA 13종 |
-| `src/eda/observed_energy_eda.py` | observed speed energy | 관측속도 기반 에너지 EDA 9종 |
-| `src/eda/compare_observed_lookup_and_build_hybrid.py` | A actual + A lookup + 전 링크 energy | A 오차 EDA 5종과 과거 하이브리드 335개 |
-| `src/eda/14_speed_energy_eda.py` | 전 링크 predicted energy 335개 | A/B/C 예측속도·에너지·품질·공간 EDA 11종 |
-| `src/eda/plot_network_silhouette.py` | seoul_link 도로망 geometry | 속도·에너지 색 없는 63,548개 링크 실루엣 지도(보고서용 기본 지도) |
+| `src/eda/01_observed_speed_eda.py` | speed fact + dimension | 관측속도 시간·도로·경사·강수·품질 EDA 13종 |
+| `src/eda/02_observed_energy_eda.py` | observed speed energy | 관측속도 기반 에너지 EDA 9종 |
+| `src/eda/03_compare_observed_lookup_and_build_hybrid.py` | A actual + A lookup + 전 링크 energy | A 오차 EDA 5종과 과거 하이브리드 335개 |
+| `src/eda/04_speed_energy_eda.py` | 전 링크 predicted energy 335개 | A/B/C 예측속도·에너지·품질·공간 EDA 11종 |
+| `src/eda/05_plot_network_silhouette.py` | seoul_link 도로망 geometry | 속도·에너지 색 없는 63,548개 링크 실루엣 지도(보고서용 기본 지도) |
 
 하이브리드 파일의 선택 우선순위는 다음과 같습니다.
 
@@ -350,10 +350,10 @@ python src/energy/03_compute_observed_speed_energy.py --start-date 20260707 --en
 
 python src/routing/02_evaluate_route_scenarios.py --timestamps 202607160800 --max-pairs 30
 
-python src/eda/observed_speed_eda.py
-python src/eda/observed_energy_eda.py
-python src/eda/compare_observed_lookup_and_build_hybrid.py
-python src/eda/14_speed_energy_eda.py --start-date 20260707 --end-date 20260720
+python src/eda/01_observed_speed_eda.py
+python src/eda/02_observed_energy_eda.py
+python src/eda/03_compare_observed_lookup_and_build_hybrid.py
+python src/eda/04_speed_energy_eda.py --start-date 20260707 --end-date 20260720
 ```
 
 지도 의존성이 없거나 빠른 재생성이 필요하면 EDA 스크립트에 `--skip-maps`를 사용할 수 있습니다. 기존 산출물을 덮어쓸 때만 각 스크립트의 `--overwrite`를 명시합니다.
