@@ -6,7 +6,7 @@
 
 1. [DATA_ANALYSIS_REPORT.md](DATA_ANALYSIS_REPORT.md): 보고서 본문 초안. 문제 정의, 데이터, 방법론, 결과, 한계, 결론 순서로 읽습니다.
 2. [METHODS_AND_PIPELINE.md](METHODS_AND_PIPELINE.md): 모든 공식 코드의 입력·처리·출력과 재현 순서를 설명합니다.
-3. [NOTEBOOK_AUDIT.md](NOTEBOOK_AUDIT.md): `11_*`, `12_*`, `13_*` 노트북의 역할, 실험 결과, 현재 배포 코드와의 차이를 정리합니다.
+3. [NOTEBOOK_AUDIT.md](NOTEBOOK_AUDIT.md): `01_*`, `02_*`, `03_*`, `04_*` 노트북의 역할, 실험 결과, 현재 배포 코드와의 차이를 정리합니다.
 4. [EDA_GUIDE.md](EDA_GUIDE.md): EDA 그림별 사용 데이터, 축, 읽는 법, 보고서에서 할 수 있는 주장과 하면 안 되는 주장을 정리합니다.
 5. 각 그림 폴더의 `README.md`: 개별 PNG를 빠르게 찾을 때 사용합니다.
 

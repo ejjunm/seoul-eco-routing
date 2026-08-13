@@ -1,6 +1,6 @@
 """Model B/C(미관측 링크, 29.25%) 최종 학습 + 배포 아티팩트 생성.
 
-notebooks/12_derived_features_lightgbm.ipynb의 16차(FEATURE_COLS_16CHA, XGBoost)를
+notebooks/02_derived_features_lightgbm.ipynb의 16차(FEATURE_COLS_16CHA, XGBoost)를
 기반으로 하되, 이웃속도 피처의 정의를 배포에 맞게 다시 설계한다.
 
 ## 왜 다시 설계하나

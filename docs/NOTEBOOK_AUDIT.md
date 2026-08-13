@@ -2,7 +2,7 @@
 
 이 문서는 `notebooks/`의 네 파일을 보고서에서 어떻게 인용해야 하는지 정리한 감사 기록입니다. 노트북은 모델 선택 과정의 증거이고, 현재 운영 파이프라인은 `src/models/`입니다. 노트북 안에 남아 있는 삭제된 `src/routing/13_predict_all_link_speed.py` 등의 경로는 작성 당시 메모이므로 현재 실행 안내로 따라가면 안 됩니다.
 
-## 1. `11_speed_model_baseline.ipynb`
+## 1. `01_speed_model_baseline.ipynb`
 
 ### 목적
 
@@ -26,7 +26,7 @@
 - 사용 금지: 현재 공식 최종성능
 - 이유: 초기 random split 성격이 강하고 현재 데이터 스키마·피처·계층 구조와 다릅니다. 동일 링크의 다른 시간이 학습과 평가에 섞이면 공간 일반화 성능이 낙관적으로 보일 수 있습니다.
 
-## 2. `12_derived_features_lightgbm.ipynb`
+## 2. `02_derived_features_lightgbm.ipynb`
 
 ### 목적
 
@@ -77,7 +77,7 @@
 
 이는 노트북 피처와 실제 배포 피처 정의가 다르므로 부정확합니다.
 
-## 3. `12b_model_a_history.ipynb`
+## 3. `03_model_a_history.ipynb`
 
 ### 목적
 
@@ -113,7 +113,7 @@
 
 또한 노트북의 `src/13_predict_all_link_speed.py` 같은 경로는 옛 구조입니다. 현재 파일은 `src/models/03_predict_all_link_speed.py`입니다.
 
-## 4. `13_tier_split_evaluation.ipynb`
+## 4. `04_tier_split_evaluation.ipynb`
 
 ### 목적
 
