@@ -88,7 +88,7 @@ def available_timestamps(start: pd.Timestamp, end: pd.Timestamp) -> list[str]:
 
 def weather_for_timestamp(weather_module, mapping: pd.DataFrame, tm: str) -> pd.DataFrame:
     path = RAW_RADAR / f"hsr_pcph_acc60_{tm}.txt"
-    radar = weather_module.parse_kma_ascii_grid(path).reshape(-1)
+    radar = weather_module.parse_kma_ascii_grid_fast(path).reshape(-1)
     raw = radar[mapping["radar_flat_index"].to_numpy(dtype=np.int64)]
     precip = raw.astype("float32") / 100.0
     precip[raw < 0] = 0.0
@@ -132,7 +132,8 @@ def main() -> None:
     print("[3/5] Model A·이웃 조회표 및 레이더 격자 매핑 로드...")
     model_a = pd.read_parquet(PROCESSED / "model_a_lookup.parquet")
     neighbor = pd.read_parquet(PROCESSED / "neighbor_speed_lookup.parquet")
-    mapping = weather_module.load_or_build_grid_mapping()[["LINK_ID", "radar_flat_index"]]
+    # 날씨 모듈은 Polars DataFrame을 돌려주므로 이후 pandas/numpy 처리에 맞게 변환한다.
+    mapping = weather_module.load_or_build_grid_mapping().select(["LINK_ID", "radar_flat_index"]).to_pandas()
     timestamps = available_timestamps(start, end)
     requested_count = int((end - start).days + 1) * 24
     print(f"[4/5] 예측 대상: {len(timestamps)}/{requested_count}개 시간대 (레이더 없는 시각 자동 제외)")
