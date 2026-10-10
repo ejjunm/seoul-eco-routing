@@ -17,7 +17,9 @@
        3 현행 유지           의존 낮음 × 효율 높음
        4 노선 조정 검토      의존 낮음 × 효율 낮음
   4. 소형 차량 시나리오(2칸): 15인승급 소형 전기 승합차(질량 3.5t, 공기저항 면적 CdA 1.4m²,
-     보조전력 3kW 가정)로 같은 노선·운행횟수를 돌릴 때 CO2를 다시 계산한다. 차량 크기 효과만 보도록
+     냉방 보조전력 3kW 가정)로 같은 노선·운행횟수를 돌릴 때 CO2를 다시 계산한다. 정지·출발 부가 전력은
+     04에서 카운티 일렉트릭(인증 질량 6t)의 공인 복합 주행거리로 역산한 값을 질량 비(3.5/6)로 줄여
+     넣는다(가감속 에너지는 질량에 비례). 마을버스와 같은 기준으로 비교하기 위함이다. 차량 크기 효과만 보도록
      06의 전기 마을버스 값(bus_ev_g_per_km)과 비교한다(전기 전환 효과는 06에서 따로 낸다). 1회 운행 평균 최대
      재차인원이 8명(15인승의 약 절반) 이하인 노선만 전환 가능으로 본다.
 
@@ -29,6 +31,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -49,11 +52,22 @@ DEPENDENCE = {
     "no_alt_boarding_share": "대체수단 없음",
 }
 SMALL_VAN = replace(VTCPEMParameters(), mass_kg=3500.0, drag_coefficient=0.35, frontal_area_m2=4.0, auxiliary_power_w=3000.0)
+BUS_ENERGY_SCRIPT = PROJECT_ROOT / "src" / "transit" / "04_build_route_energy.py"
+
+
+def small_van_parameters() -> VTCPEMParameters:
+    """04의 카운티 정지·출발 부가 전력을 질량 비로 옮겨 소형 승합차 보조전력에 더한다."""
+    spec = importlib.util.spec_from_file_location("route_energy", BUS_ENERGY_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _, extra_w = module.calibrate_county()
+    van_extra_w = extra_w * SMALL_VAN.mass_kg / module.CERT_MASS_KG
+    return replace(SMALL_VAN, auxiliary_power_w=SMALL_VAN.auxiliary_power_w + van_extra_w)
 SMALL_VAN_MAX_PEAK_LOAD = 8.0
 CLASS_LABELS = {1: "1 증편·지원 우선", 2: "2 소형 차량 전환", 3: "3 현행 유지", 4: "4 노선 조정 검토"}
 
 
-def small_van_kwh_per_km(route_ids: set[str]) -> pd.Series:
+def small_van_kwh_per_km(route_ids: set[str], van: VTCPEMParameters) -> pd.Series:
     links = pd.read_csv(TRANSIT / "route_links.csv", dtype={"ROUTE_ID": str, "LINK_ID": str})
     links = links[links["ROUTE_ID"].isin(route_ids)]
     slope = pd.read_csv(PROJECT_ROOT / "data" / "processed" / "seoul_link_dimension.csv",
@@ -63,7 +77,7 @@ def small_van_kwh_per_km(route_ids: set[str]) -> pd.Series:
     profile = pd.read_parquet(TRANSIT / "link_speed_weekday_profile.parquet")
     frame = links.merge(profile[profile["시간코드"].isin(OPERATING)][["LINK_ID", "시간코드", "speed_kmh"]], on="LINK_ID", how="left")
     frame["speed_kmh"] = frame["speed_kmh"].fillna(frame.groupby("시간코드")["speed_kmh"].transform("median")).clip(lower=3)
-    frame["wh"] = calculate_link_energy(frame[["LINK_ID", "LENGTH", "speed_kmh", "slope_pct"]], SMALL_VAN)["energy_ev_wh"].to_numpy()
+    frame["wh"] = calculate_link_energy(frame[["LINK_ID", "LENGTH", "speed_kmh", "slope_pct"]], van)["energy_ev_wh"].to_numpy()
     per_hour = frame.groupby(["ROUTE_ID", "시간코드"]).agg(wh=("wh", "sum"), m=("LENGTH", "sum"))
     return (per_hour["wh"] / per_hour["m"]).groupby("ROUTE_ID").mean().rename("van_kwh_per_km")
 
@@ -82,7 +96,7 @@ def main() -> None:
 
     # 소형 차량 전환(2칸) 효과
     data["avg_peak_load_per_trip"] = data["peak_onboard"] / data["trips_per_day"]
-    van = small_van_kwh_per_km(set(data["ROUTE_ID"]))
+    van = small_van_kwh_per_km(set(data["ROUTE_ID"]), small_van_parameters())
     data = data.join(van, on="ROUTE_ID")
     data["van_g_per_km"] = data["van_kwh_per_km"] * GRID_KG_CO2_PER_KWH * 1000.0
     data["van_feasible"] = data["avg_peak_load_per_trip"] <= SMALL_VAN_MAX_PEAK_LOAD
