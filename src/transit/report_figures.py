@@ -134,7 +134,7 @@ def fig01_flow(out: Path) -> None:
 # 검증 R²: docs/DATA_ANALYSIS_REPORT.md 3.2절(A, 시간 순서 분할)과 docs/figures/model/09_bc_groupkfold_r2.png
 # (B·C, 도로 단위 3-fold GroupKFold). 이 스크립트에서 다시 계산하지 않는다.
 TIER_ROWS = [
-    ("A_lookup", "A  관측 이력: 과거 같은 시간대 평균\n검증 R² 0.93 (앞 11일 학습 → 뒤 3일 평가)"),
+    ("A_lookup", "A  관측 이력: 과거 같은 시간대 평균\n검증 R² 0.92 (앞 11일 학습 → 뒤 3일 평가)"),
     ("B_neighbor_model", "B  AI 추정: 이웃 도로 관측 있음\n검증 R² 0.74 (도로 단위로 나눈 평가)"),
     ("C_static_model", "C  AI 추정: 이웃 관측도 없음\n검증 R² 0.32 (도로 단위로 나눈 평가)"),
 ]
@@ -239,7 +239,7 @@ def fig04_hourly(t: dict, out: Path) -> None:
     a1.text(22.5, be + 0.25, f"손익분기 평균 {be:.2f}명", ha="right", fontsize=9, color=INK2)
     for hour in (8, 18, 21):
         a1.text(hour, g.loc[hour, "load"] + 0.55, f"{g.loc[hour, 'load']:.1f}명", ha="center", fontsize=9, color=INK)
-    a1.set_title("시간대별 평균 탑승 인원(명, 운행 거리 가중)")
+    a1.set_title("시간대별 차 안 평균 인원(명, 운행 거리 가중)")
     a2.set_ylim(0, max(g["low_share"]) * 1.25)
     for hour, value in g["low_share"].items():
         vbar(a2, hour, value, 0.5, BLUE_DARK if hour >= 20 else BLUE_LIGHT)
