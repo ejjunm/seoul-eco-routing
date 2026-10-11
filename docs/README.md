@@ -10,6 +10,7 @@
 4. [EDA_GUIDE.md](EDA_GUIDE.md): EDA 그림별 사용 데이터, 축, 읽는 법, 보고서에서 할 수 있는 주장과 하면 안 되는 주장을 정리합니다.
 5. 각 그림 폴더의 `README.md`: 개별 PNG를 빠르게 찾을 때 사용합니다.
 6. [TRANSIT_MAEUL_BUS.md](TRANSIT_MAEUL_BUS.md): 마을버스 탄소·교통약자 분석(`src/transit/`), 차량별 에너지 모델, 실행 순서를 설명합니다.
+7. [TRANSIT_REPORT_OUTLINE.md](TRANSIT_REPORT_OUTLINE.md): 마을버스 분석 보고서(5쪽) 구성안. 항목별 계산 방법, 결과, 숫자 출처 파일을 정리합니다.
 
 기본 공간 그림은 [서울 전 도로망 실루엣](figures/network/01_seoul_all_links_silhouette.png)입니다.
 
