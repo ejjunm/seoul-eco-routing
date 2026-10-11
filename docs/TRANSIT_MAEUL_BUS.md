@@ -5,6 +5,7 @@
 - 서울 마을버스 전체(승하차 데이터 공식 분류 245개 노선, 정류소 파일 기준 247개)를 실제 경로(서울시 버스 API)로 도로망에 붙이고, AI 속도·경사로 노선별 에너지를 계산합니다.
 - 같은 길·같은 시간대에서 **승객 1명·1km당 탄소**를 마을버스와 승용차로 비교합니다. 버스와 승용차 모두 2026년 서울의 실제 연료 구성을 반영합니다.
 - 교통약자(고령 생활인구, 대체수단 없는 정류장) 의존도와 탄소 효율로 노선을 네 칸으로 분류합니다.
+- 시간대별 탑승·적자 범위·탄소 목적 증편 후보(07), 데이터 군집 유형(08), 노인 보행 접근성(09), AI 속도 검증(10)으로 결과를 보강합니다.
 
 ## 실행 방법
 
@@ -12,21 +13,25 @@
 
 ```powershell
 # 패키지 (shapely는 2.x 필요)
-pip install pandas numpy geopandas shapely scipy pyarrow openpyxl polars
+pip install pandas numpy geopandas shapely scipy pyarrow openpyxl polars scikit-learn
 
 # 테스트 (10개 통과)
 python -m unittest tests.test_link_energy
 
-# 마을버스 분석 — 이 순서대로. 05는 06 결과를 쓰므로 06 다음
+# 마을버스 분석 — 번호 순서대로
 python src/transit/01_build_bus_route_links.py
 python src/transit/02_build_route_demand.py
 python src/transit/03_build_route_feasibility.py
 python src/transit/04_build_route_energy.py
-python src/transit/06_build_route_carbon_breakeven.py
-python src/transit/05_classify_route_priority.py
+python src/transit/05_build_route_carbon_breakeven.py
+python src/transit/06_classify_route_priority.py
+python src/transit/07_build_route_operations.py
+python src/transit/08_route_typology.py
+python src/transit/09_access_gap.py
+python src/transit/10_validate_ai_speed.py
 ```
 
-결과는 `data/processed/transit/`에 저장됩니다.
+결과는 `data/processed/transit/`에 저장됩니다. 캐시가 모두 있을 때 01~10 전체가 약 2분 걸립니다.
 
 **00(노선 실제 경로 수집)**은 `data/raw/traffic/bus_route_path/route_paths.csv`가 있으면 실행하지 않아도 됩니다. 다시 받으려면 서울시 버스운행정보 API 인증키가 필요합니다. 키는 코드나 문서에 적지 말고 환경변수로만 넣습니다.
 
@@ -35,12 +40,16 @@ $env:SEOUL_BUS_API_KEY = "<인증키>"
 python src/transit/00_fetch_bus_route_paths.py   # 이미 받은 노선은 건너뜀(전부 다시: --refresh). 노선마다 최대 3회 재시도
 ```
 
-### 캐시 두 개
+### 캐시
 
-| 캐시 파일 | 없을 때 필요한 것 |
-|---|---|
-| `data/processed/transit/grid_population_daytime.csv` | 02가 생활인구 원자료(`data/raw/traffic/250_LOCAL_RESD_202607/` 약 780MB, `250_LOCAL_RESD_ADMDONG_202607/`, `match/`)로 새로 계산. 원자료가 없고 이 파일이 있으면 그대로 사용 |
-| `data/processed/transit/link_speed_weekday_profile.parquet` | 03이 전 링크 속도 예측 CSV 335개(`data/processed/all_link_speed_prediction_*.csv`, 2.8GB)로 새로 계산. 예측 CSV는 `python src/models/04_batch_predict_all_link_speed.py --start-date 20260707 --end-date 20260720`로 생성(약 1시간) |
+원자료를 단계마다 다시 읽지 않도록 아래 캐시를 씁니다. 원자료가 캐시보다 새로우면 자동으로 다시 만들고, 원자료가 없으면 있는 캐시를 그대로 씁니다.
+
+| 캐시 파일(`data/processed/transit/`) | 만드는 곳 | 없을 때 필요한 것 |
+|---|---|---|
+| `route_stops.parquet` | `route_data.py` | 정류소 엑셀(OA-1095). 몇 초면 다시 만듦 |
+| `bus_trip_counts.parquet` | `route_data.py` | TOPIS 운행횟수 원자료(`bus_trips/`, 약 320MB). 약 20초 |
+| `grid_population_daytime.csv`, `dong_population_night.csv` | 02 | 생활인구 원자료(`250_LOCAL_RESD_202607/` 약 780MB, `250_LOCAL_RESD_ADMDONG_202607/`, `match/`). 약 40초. 강제로 다시 만들려면 `--rebuild` |
+| `link_speed_weekday_profile.parquet` | 03 | 전 링크 속도 예측 CSV 335개(`data/processed/all_link_speed_prediction_*.csv`, 2.8GB). 약 1분. 예측 CSV는 `python src/models/04_batch_predict_all_link_speed.py --start-date 20260707 --end-date 20260720`로 생성(약 1시간) |
 
 ## 단계별 역할
 
@@ -48,11 +57,17 @@ python src/transit/00_fetch_bus_route_paths.py   # 이미 받은 노선은 건�
 |---|---|---|---|
 | 00 | `00_fetch_bus_route_paths.py` | 서울시 버스 API(getRoutePath)로 마을버스·자율주행 노선의 실제 경로 좌표 수집 | `data/raw/traffic/bus_route_path/route_paths.csv` |
 | 01 | `01_build_bus_route_links.py` | 실제 경로를 표준노드링크에 맵매칭(진행 방향 일치 링크 우선, 한 방향만 그려진 골목은 역방향 통과 허용). 노선 길이·정류장 구간 길이는 실제 경로선에서 측정(정류장 순서를 지키는 동적 계획법 배치). 정류장별 지하철역·일반버스 접근성 | `routes.csv`, `route_links.csv`, `route_segments.csv`, `bus_stops.csv` |
-| 02 | `02_build_route_demand.py` | 7월 승하차, 정류장 300m 안 평일 낮 고령 생활인구(격자 총인구 × 행정동 65세 이상 비율), 대체수단 없는 정류장의 승차 비중 | `route_demand.csv`, `stop_ridership.csv` |
-| 03 | `03_build_route_feasibility.py` | 평일 시간대별 전 링크 속도 프로필(04~06이 사용) + 자율주행 시범노선 대비 도로 조건(현재 참고용) | `link_speed_weekday_profile.parquet`, `route_feasibility.csv` |
+| 02 | `02_build_route_demand.py` | 7월 승하차, 정류장 300m 안 평일 낮 고령 생활인구(격자 총인구 × 행정동 65세 이상 비율), 대체수단 없는 정류장의 승차 비중, 노선 주변 자가용 승용차 보유(행정동 등록 ÷ 새벽 생활인구) | `route_demand.csv`, `stop_ridership.csv` |
+| 03 | `03_build_route_feasibility.py` | 평일 시간대별 전 링크 속도 프로필(04~06이 사용) + 자율주행 시범노선 대비 도로 조건, AI 추정 구간 비중 | `link_speed_weekday_profile.parquet`, `route_feasibility.csv` |
 | 04 | `04_build_route_energy.py` | 전기 중형 마을버스(카운티 일렉트릭) 노선별 에너지. 질량·냉방 시나리오 포함 | `route_energy.csv` |
-| 06 | `06_build_route_carbon_breakeven.py` | 정류장 순서대로 누적한 구간별 승객 수 → 승객·km, TOPIS 실제 운행횟수 → 평균 탑승 인원, 버스·승용차 승객 1명당 탄소, 손익분기, 증편 1회 손익분기 | `route_carbon_breakeven.csv` |
-| 05 | `05_classify_route_priority.py` | 탄소 효율(노선 간 상대) × 교통약자 의존도 네 칸 분류, 15인승급 소형 전기차 시나리오 | `route_priority.csv` |
+| 05 | `05_build_route_carbon_breakeven.py` | 정류장 순서대로 누적한 구간별 승객 수 → 승객·km, TOPIS 실제 운행횟수 → 평균 탑승 인원, 버스·승용차 승객 1명당 탄소, 손익분기, 증편 1회 손익분기 | `route_carbon_breakeven.csv` |
+| 06 | `06_classify_route_priority.py` | 탄소 효율(노선 간 상대) × 교통약자 의존도 네 칸 분류, 15인승급 소형 전기차 시나리오 | `route_priority.csv` |
+| 07 | `07_build_route_operations.py` | 시간대별 평균 탑승, 한산한 시간대(승객 3명 미만)만 소형 전기차로 돌릴 때 감축, 적자 추정 범위(승객 1명당 실수입 600·900·1,200원), 탄소 목적 증편 후보(승용차 보유 높고 증편 손익분기 낮은 노선) | `route_hourly_load.csv`, `route_operations.csv` |
+| 08 | `08_route_typology.py` | 변수 10개 K-평균 군집(실루엣·가우시안 혼합 BIC로 군집 뚜렷함 확인), 네 칸과의 일치도(ARI), 규칙으로 유형 이름 붙이기 | `route_typology.csv`, `typology_profile.csv` |
+| 09 | `09_access_gap.py` | 정류장까지 노인 보행 시간(Tobler 보행속도 × 0.75, 도로망 최단 시간과 직선 간이 계산), 도로망 거리로 다시 본 대체수단 없는 정류장과 네 칸 민감도 | `grid_walk_access.csv`, `stop_network_access.csv`, `route_class_network.csv` |
+| 10 | `10_validate_ai_speed.py` | AI 속도(평일 프로필)를 TOPIS 마을버스 실측 시간대 속도와 비교, 노선별 AI 추정 구간 비중 | `ai_speed_validation.csv` |
+
+공통 모듈: `route_data.py`(캐시와 공통 입력: 정류소, 운행횟수, 승하차, 노선 링크 속도·경사), `route_classes.py`(네 칸 규칙, 06·09 공용), `road_network.py`(도로망 불러오기·최단 거리, 01·09 공용).
 
 노선 유형 구분은 `route_kinds.py`가 맡습니다. 마을버스는 이름 규칙이 아니라 승하차 데이터의 공식 분류 '서울마을버스'로 고르며(강남06-1 같은 파생 노선 포함), 정류소 파일에서 큰 순환·작은 순환('대'·'소')으로 나뉜 서대문02·09는 함께 서는 정류장의 승하차를 TOPIS 정류장별 운행횟수 비율로 나눕니다.
 
@@ -69,7 +84,7 @@ python src/transit/00_fetch_bus_route_paths.py   # 이미 받은 노선은 건�
 | LPG 승용차 | 〃 | 쏘나타 디 엣지 LPi 2.0: 1,475kg, 도심 8.3·고속 11.7km/L | 〃 |
 | 하이브리드 승용차 | Ahn & Rakha(2019) HEV 모델. 32km/h·10kW 미만은 전기 모드(충전 유지형이라 엔진이 나중에 채우는 연료 반영), 그 외 엔진 모드 2차식(Prius 계수) | 쏘나타 디 엣지 하이브리드(18인치): 1,585kg, 도심 16.8·고속 17.4km/L | `src/energy/hev_fuel.py` |
 | 전기 승용차 | VT-CPEM(Fiori et al. 2016) | 아이오닉5 롱레인지 2WD: 2,015kg, 도심 5.8·고속 4.6km/kWh. 공기저항계수·부가 전력 역산 | `src/energy/ev_calibration.py` |
-| 전기 마을버스(중형) | VT-CPEM | 카운티 일렉트릭: 배터리 128kWh, 73km/h 정속 338km, 복합 303km. 질량 7t, 냉방 5kW | `src/transit/04_build_route_energy.py` |
+| 전기 마을버스(중형) | VT-CPEM | 카운티 일렉트릭: 배터리 128kWh, 73km/h 정속 338km, 복합 303km. 질량 7t, 냉방 5kW | `src/energy/ev_calibration.py`(보정), `src/transit/04_build_route_energy.py` |
 | 경유·CNG 마을버스(중형) | 전기버스 모델값 × 서울 실측 비율 | 서울 시내버스 노선 같은 주행 패턴에서 전기 1.43kWh/km, 경유 723g, CNG 721gCO2/km(전기전자학회논문지 24(3), 2020) | `src/energy/bus_fuel.py` |
 
 - **경유·CNG 버스에 전용 모델(VT-CPFM 버스·CNG 버전)을 쓰지 않은 이유**: 그 계수는 초 단위 가감속을 입력으로 보정되어 있어, 링크 정속 근사에 넣으면 정류장 정지·출발 연료가 빠져 버스가 과소 추정됩니다(시험 결과 7t 경유버스가 1.5t 승용차와 비슷하게 나옴). 그래서 같은 노선 조건의 서울 실측 비율로 환산했습니다.
@@ -85,8 +100,8 @@ Git에는 올리지 않습니다. 압축 파일로 따로 전달합니다.
 
 | 파일 | 쓰는 곳 |
 |---|---|
-| `data/interim/seoul_link.shp`(+ `.shx` `.dbf` `.prj` `.cpg`) | 01: 도로 형상 |
-| `data/processed/seoul_link_dimension.csv` | 01, 03, 04, 05, 06: 링크 속성·경사 |
+| `data/interim/seoul_link.shp`(+ `.shx` `.dbf` `.prj` `.cpg`) | 01, 09: 도로 형상 |
+| `data/processed/seoul_link_dimension.csv` | 01, 03~06, 09: 링크 속성·경사 |
 
 ### 새로 받은 원자료(`data/raw/traffic/`)
 
@@ -98,7 +113,8 @@ Git에는 올리지 않습니다. 압축 파일로 따로 전달합니다.
 | `bus_trips/tpss_sta_route_hturn_2026.07.*.csv` | OA-21220(TOPIS 원천) | 노선·정류장별 일별 운행횟수 |
 | `서울시 역사마스터 정보.csv` | OA-21232 | 지하철역 좌표 |
 | `vehicle_registration/seoul_fuel_registration_202607.csv` | OA-15640 | 서울 승용차 연료별 등록(2026년 7월) |
-| `통행속도 노선 통계.csv` | 서울 버스정보 | 노선유형별·시간대별 버스 실제 속도(2026.10.6~8). AI 속도 검증용, 아직 코드 미반영 |
+| `서울시 자치구 읍면동별 연료별 자동차 등록현황(행정동)(26년7월).csv` | 서울 열린데이터광장 | 행정동별 자가용 승용차(02), 행정동 이름(09) |
+| `통행속도 노선 통계.csv` | 서울 버스정보 | 노선유형별·시간대별 버스 실제 속도(2026.10.6~8). AI 속도 검증(10) |
 
 ## 현재 주요 결과(마을버스 노선 중앙값·합계)
 
@@ -114,6 +130,21 @@ Git에는 올리지 않습니다. 압축 파일로 따로 전달합니다.
 | 소형 전기차(15인승급) 대 전기 마을버스(1km당, 정지·출발 부가 전력을 질량 비례로 동일 적용) | 268g 대 479g |
 | 네 칸 분류 | 증편·지원 우선 62 / 소형 차량 전환 55 / 현행 유지 53 / 노선 조정 검토 60개 |
 
+### 보강 분석(07~10)
+
+| 항목 | 값 |
+|---|---|
+| 시간대별 평균 탑승(운행 가중) | 출근 7.8, 낮 6.5, 퇴근 8.7, 저녁 4.9명. 승객 3명 미만 운행 비중은 각각 8%, 13%, 6%, 26% |
+| 승객 3명 미만 시간대만 소형 전기차로(전체 운행의 16%) | 하루 5.55톤 감소(전부 전기 마을버스일 때 하루 97.7톤 기준) |
+| 적자 노선(1회 운행 원가 약 2.9만 원) | 승객 1명당 실수입 600 / 900 / 1,200원일 때 177 / 122 / 74개(230개 중). 소형 차량 전환 칸은 93 / 73 / 49%가 적자 |
+| 탄소 목적 증편 후보 | 50개(노선 주변 승용차 보유 중앙값 이상 & 증편 1회 손익분기 중앙값 이하) |
+| 노선 주변 자가용 승용차 | 주민 1,000명당 중앙 약 255대. 고령 비율과 순위상관 −0.40(어르신 많은 노선일수록 승용차가 적음) |
+| 데이터 군집 | 실루엣 0.14~0.17(경계 약함), 네 칸과 일치도 ARI 0.14(K-평균)·0.07(Ward). 유형: 고지대 골목형 69, 대량 수송형 57, 평지·승용차형 52, 한산형 52개. 고지대 골목형의 절반 가까이(32개)가 소형 차량 전환 칸 |
+| 정류장까지 노인 걸음 5분 초과 고령 인구 | 7~22%(직선 × 1.3 평지 ~ 도로망). 10분 초과 0.5~3.1%. 도로망에서 오르막·내리막을 방향대로 반영하면 언덕이 늘리는 몫은 거의 없음 |
+| 대체수단 없는 마을버스 정류장 | 직선 18.7% → 도로망 28.9%(기준 거리 ×1.3)~39.2%(기준 그대로). 네 칸이 바뀌는 노선 28~29 / 230 |
+| AI 속도 검증(07~22시) | 실측 마을버스 15.3~17.1km/h, 모델 15.3~19.0km/h. 평균 +1.1km/h, 시간대 흐름 상관 0.66. 20~22시 차이(+2.5km/h)가 가장 큼 |
+| AI 추정 구간 비중(마을버스 노선) | 평균 16%, 최대 65%, 30% 이상 노선 46개 |
+
 ## 알려진 한계
 
 - 노선별로 어떤 연료·크기의 버스가 다니는지 몰라 서울 전체 구성을 모든 노선에 적용했고, 크기는 중형으로 고정했습니다.
@@ -121,3 +152,7 @@ Git에는 올리지 않습니다. 압축 파일로 따로 전달합니다.
 - 정류장 순서(9월)와 승하차(7월) 시점 차이 등으로 17개 노선은 승객 계산에서 제외했습니다.
 - 승용차 대비 감축량은 승객 전원이 승용차를 탔다고 가정한 상한입니다. 실제 대체 수단 구성은 반영하지 않았습니다.
 - 링크 안은 일정 속도로 달린다고 가정했고, 회생제동은 반영하지 않았습니다.
+- 시간대별 탑승은 승객·km가 승차와 같은 시간 분포를 따른다고 근사했습니다. 소형 차량 효과는 07~21시 평균 속도의 1km당 값을 씁니다.
+- 적자 추정은 재정지원 기준액을 1회 운행 원가로 환산한 근사이고, 노선별 실수입은 환승 정산 때문에 범위로만 냈습니다.
+- 보행 도로망(표준노드링크)에는 인도·계단·좁은 골목 일부가 없어 도로망 거리는 길게, 직선 × 1.3은 짧게 잡힐 수 있어 둘을 범위로 냈습니다.
+- AI 속도 검증의 실측은 10월 버스 속도, 모델은 7월 일반 차량 속도라 시기·차종이 다릅니다.
