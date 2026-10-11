@@ -7,7 +7,7 @@
 - 교통약자(고령 생활인구, 대체수단 없는 정류장) 의존도와 탄소 효율로 노선을 네 칸으로 분류합니다.
 - 시간대별 탑승·적자 범위·탄소 목적 증편 후보(07), 데이터 군집 유형(08), 노인 보행 접근성(09), AI 속도 검증(10)으로 결과를 보강합니다.
 
-보고서에 쓸 항목과 흐름은 [TRANSIT_REPORT_OUTLINE.md](TRANSIT_REPORT_OUTLINE.md)에 정리했습니다.
+보고서 본문은 [report/maeul_bus_report.md](report/maeul_bus_report.md)에 있고, 항목별 계산 근거는 [TRANSIT_REPORT_OUTLINE.md](TRANSIT_REPORT_OUTLINE.md)에 정리했습니다.
 
 ## 실행 방법
 
@@ -32,7 +32,7 @@ python src/transit/08_route_typology.py
 python src/transit/09_access_gap.py
 python src/transit/10_validate_ai_speed.py
 python src/transit/11_route_removal_access.py
-python src/transit/report_figures.py   # 보고서 그림(선택)
+python src/transit/report_figures.py   # 보고서 그림(선택, docs/report/images에 저장)
 ```
 
 결과는 `data/processed/transit/`에 저장됩니다. 캐시가 모두 있을 때 01~11 전체가 약 2~3분 걸립니다.

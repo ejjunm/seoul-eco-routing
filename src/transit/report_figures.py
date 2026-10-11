@@ -1,6 +1,6 @@
 """마을버스 분석 보고서용 그림(PNG)을 만든다. 01~10 산출물만 읽는다.
 
-출력: --out 폴더(기본 docs/figures/transit_report)에 PNG. fig00 한눈에 보기, fig01~fig07 본문 그림, figA1~figA5 부록 그림
+출력: --out 폴더(기본 docs/report/images, 보고서 본문 docs/report/maeul_bus_report.md가 쓰는 위치)에 PNG. fig00 한눈에 보기, fig01~fig07 본문 그림, figA1~figA5 부록 그림
 사용: python src/transit/report_figures.py [--out 폴더]
 """
 
@@ -486,7 +486,7 @@ def fig_route_card(t: dict, out: Path, name: str, filename: str, headline: str) 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=PROJECT_ROOT / "docs" / "figures" / "transit_report")
+    parser.add_argument("--out", type=Path, default=PROJECT_ROOT / "docs" / "report" / "images")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     setup_style()
