@@ -1,4 +1,4 @@
-"""표준노드링크 도로망 불러오기(01 맵매칭, 09 보행 거리 공용)."""
+"""표준노드링크 도로망 불러오기와 최단 거리·노인 보행 시간 계산(01 맵매칭, 09·11 보행 공용)."""
 
 from __future__ import annotations
 
@@ -60,3 +60,26 @@ def nearest_source_cost(graph: csr_matrix, source_nodes: np.ndarray, source_cost
     data = np.r_[reverse.data, table.to_numpy() + 1e-9]  # 비용 0 간선은 희소 행렬에서 사라지므로 아주 작은 값을 더한다
     extended = csr_matrix((data, (rows, cols)), shape=(n + 1, n + 1))
     return dijkstra(extended, directed=True, indices=n, limit=limit)[:n]
+
+
+ELDERLY_SPEED_FACTOR = 0.75   # 노인 보행속도 = 일반 보행속도 × 0.75(평지 약 1.05m/s)
+SLOPE_CLIP_PCT = 12.0         # 03과 같은 경사 상한(짧은 링크의 DEM 잡음 억제)
+
+
+def tobler_kmh(grade: np.ndarray | float) -> np.ndarray:
+    """Tobler 보행속도[km/h]. grade = 걷는 방향 경사(비율, 오르막 +)."""
+    return 6.0 * np.exp(-3.5 * np.abs(np.asarray(grade) + 0.05))
+
+
+def elderly_mps(grade: np.ndarray | float) -> np.ndarray:
+    return tobler_kmh(grade) * ELDERLY_SPEED_FACTOR / 3.6
+
+
+def link_grade(links: pd.DataFrame) -> np.ndarray:
+    """링크 F→T 방향 경사(비율), ±SLOPE_CLIP_PCT로 제한. links에 slope_pct 열이 있어야 한다."""
+    return links["slope_pct"].fillna(0).clip(-SLOPE_CLIP_PCT, SLOPE_CLIP_PCT).to_numpy() / 100.0
+
+
+def elderly_walk_graph(fi: np.ndarray, ti: np.ndarray, length: np.ndarray, grade: np.ndarray, n_nodes: int) -> csr_matrix:
+    """노인 보행 시간[초] 그래프. F→T로 걸으면 경사 grade, T→F로 걸으면 −grade."""
+    return edge_graph(np.r_[fi, ti], np.r_[ti, fi], np.r_[length / elderly_mps(grade), length / elderly_mps(-grade)], n_nodes)

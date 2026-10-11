@@ -37,7 +37,7 @@ import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 
-from road_network import edge_graph, load_network, nearest_source_cost
+from road_network import edge_graph, elderly_mps, elderly_walk_graph, link_grade, load_network, nearest_source_cost
 from route_classes import assign_classes
 from route_data import load_dong_names, load_route_stops, load_stop_ridership
 from route_kinds import branch_stop_weights, ridership_key
@@ -46,8 +46,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TRANSIT = PROJECT_ROOT / "data" / "processed" / "transit"
 STATION_CSV = PROJECT_ROOT / "data" / "raw" / "traffic" / "서울시 역사마스터 정보.csv"
 
-ELDERLY_SPEED_FACTOR = 0.75
-SLOPE_CLIP_PCT = 12.0         # 03과 같은 경사 상한(짧은 링크의 DEM 잡음 억제)
 DETOUR_FACTOR = 1.3
 SLOPE_RADIUS_M = 300.0
 STATION_WALK_M, TRUNK_WALK_M = 500.0, 200.0
@@ -57,21 +55,12 @@ WALK_THRESHOLDS_MIN = (5, 10)
 GAP_STATION_M = 800.0
 
 
-def tobler_kmh(grade: np.ndarray | float) -> np.ndarray:
-    """Tobler 보행속도[km/h]. grade = 걷는 방향 경사(비율, 오르막 +)."""
-    return 6.0 * np.exp(-3.5 * np.abs(np.asarray(grade) + 0.05))
-
-
-def elderly_mps(grade: np.ndarray | float) -> np.ndarray:
-    return tobler_kmh(grade) * ELDERLY_SPEED_FACTOR / 3.6
-
-
 def main() -> None:
     print("[1/4] 도로망·격자·정류장...")
     links, nodes, node_xy = load_network(extra_cols=("slope_pct",))
     fi, ti = nodes.get_indexer(links["F_NODE"]), nodes.get_indexer(links["T_NODE"])
     length = links["LENGTH"].to_numpy()
-    grade = links["slope_pct"].fillna(0).clip(-SLOPE_CLIP_PCT, SLOPE_CLIP_PCT).to_numpy() / 100.0
+    grade = link_grade(links)
     node_tree = cKDTree(node_xy)
 
     cells = pd.read_csv(TRANSIT / "grid_population_daytime.csv", dtype={"dong": str})
@@ -88,8 +77,7 @@ def main() -> None:
     print("[2/4] 노인 보행 시간(격자 → 가장 가까운 버스 정류장)...")
     flat = float(elderly_mps(0.0))
     for label, g in (("net", grade), ("net_flat", np.zeros_like(grade))):
-        # F→T로 걸으면 경사 g, T→F로 걸으면 −g
-        graph = edge_graph(np.r_[fi, ti], np.r_[ti, fi], np.r_[length / elderly_mps(g), length / elderly_mps(-g)], len(nodes))
+        graph = elderly_walk_graph(fi, ti, length, g, len(nodes))
         to_stop = nearest_source_cost(graph, stop_node, stop_snap / flat)
         cells[f"walk_min_{label}"] = (to_stop[cell_node] + cell_snap / flat) / 60.0
     cells["dist_to_stop_m"] = cKDTree(stop_xy).query(cell_xy)[0]

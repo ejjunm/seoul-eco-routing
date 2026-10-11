@@ -22,7 +22,8 @@
      카운티 일렉트릭(인증 질량 6t)의 공인 복합 주행거리로 역산한 값(src/energy/ev_calibration.py)을
      질량 비(3.5/6)로 줄여 넣는다(가감속 에너지는 질량에 비례). 마을버스와 같은 기준으로 비교하기 위함이다. 차량 크기 효과만 보도록
      05의 전기 마을버스 값(bus_ev_g_per_km)과 비교한다(전기 전환 효과는 05에서 따로 낸다). 1회 운행 평균 최대
-     재차인원이 8명(15인승의 약 절반) 이하인 노선만 전환 가능으로 본다.
+     재차인원이 8명(15인승의 약 절반) 이하인 노선만 전환 가능으로 본다. 감축량은 크기 효과만(전기 마을버스 대비,
+     van_co2_cut_kg_per_day)과 지금 차량 구성 대비(van_co2_cut_vs_current_kg_per_day) 두 가지로 낸다.
 
 출력
   data/processed/transit/route_priority.csv
@@ -80,8 +81,10 @@ def main() -> None:
     data["van_g_per_km"] = data["van_kwh_per_km"] * GRID_KG_CO2_PER_KWH * 1000.0
     data["van_feasible"] = data["avg_peak_load_per_trip"] <= SMALL_VAN_MAX_PEAK_LOAD
     vkm = data["trips_per_day"] * data["length_km"]
-    data["van_co2_cut_kg_per_day"] = np.where(
-        (data["class_id"] == 2) & data["van_feasible"], (data["bus_ev_g_per_km"] - data["van_g_per_km"]) * vkm / 1000.0, 0.0)
+    convert = (data["class_id"] == 2) & data["van_feasible"]
+    data["van_co2_cut_kg_per_day"] = np.where(convert, (data["bus_ev_g_per_km"] - data["van_g_per_km"]) * vkm / 1000.0, 0.0)
+    data["van_co2_cut_vs_current_kg_per_day"] = np.where(
+        convert, (data["bus_g_per_km"] - data["van_g_per_km"]) * vkm / 1000.0, 0.0)
     data = data.sort_values(["class_id", "dependence_score"], ascending=[True, False])
     data.to_csv(TRANSIT / "route_priority.csv", index=False, encoding="utf-8-sig")
 
@@ -94,7 +97,8 @@ def main() -> None:
     two = data[data["class_id"] == 2]
     print(f"\n소형 차량 전환 칸 {len(two)}개 중 전환 가능(1회 평균 최대 승객 {SMALL_VAN_MAX_PEAK_LOAD:.0f}명 이하) {int(two['van_feasible'].sum())}개")
     print(f"  1km당 CO2(같은 전기차끼리): 전기 마을버스 {two['bus_ev_g_per_km'].median():.0f}g → 소형 전기 승합차 {two['van_g_per_km'].median():.0f}g")
-    print(f"  전환 시 추가 감축: 하루 {two['van_co2_cut_kg_per_day'].sum() / 1000:.2f}t")
+    print(f"  전환 시 감축: 하루 {two['van_co2_cut_vs_current_kg_per_day'].sum() / 1000:.2f}t(지금 차량 대비), "
+          f"그중 크기 효과 {two['van_co2_cut_kg_per_day'].sum() / 1000:.2f}t(전기 마을버스 대비)")
     cols = ["노선명", "boardings_per_day", "avg_load", "bus_g_per_pkm", "catchment_elderly_share", "no_alt_boarding_share",
             "avg_peak_load_per_trip", "van_feasible"]
     print("\n소형 차량 전환 칸 상위(의존도 순) 10개:")
