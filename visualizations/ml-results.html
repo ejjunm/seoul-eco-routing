@@ -1,0 +1,108 @@
+<div id="ml-results-viz">
+  <style>
+    #ml-results-viz { color: var(--foreground); width: 100%; }
+    #ml-results-viz .title-row { display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+    #ml-results-viz .subtitle { color:var(--muted-foreground); }
+    #ml-results-viz .section { margin-top:24px; }
+    #ml-results-viz .section-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+    #ml-results-viz .coverage-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; align-items:end; }
+    #ml-results-viz .coverage-item { min-width:0; }
+    #ml-results-viz .coverage-label { display:flex; justify-content:space-between; gap:8px; margin-bottom:6px; }
+    #ml-results-viz .track { height:18px; background:color-mix(in srgb, var(--muted) 70%, transparent); overflow:hidden; }
+    #ml-results-viz .fill { height:100%; background:var(--viz-series-1); }
+    #ml-results-viz .fill.target { background:var(--muted-foreground); opacity:.55; }
+    #ml-results-viz .stack { display:flex; width:100%; height:34px; overflow:hidden; }
+    #ml-results-viz .seg { display:flex; align-items:center; justify-content:center; min-width:0; color:var(--foreground); font-weight:500; }
+    #ml-results-viz .seg.a { background:color-mix(in srgb, var(--viz-series-1) 58%, transparent); }
+    #ml-results-viz .seg.b { background:color-mix(in srgb, var(--viz-series-2) 58%, transparent); }
+    #ml-results-viz .seg.c { background:color-mix(in srgb, var(--viz-series-3) 58%, transparent); }
+    #ml-results-viz .seg.d { background:color-mix(in srgb, var(--muted-foreground) 28%, transparent); }
+    #ml-results-viz .legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:8px; color:var(--muted-foreground); }
+    #ml-results-viz .legend span { display:inline-flex; align-items:center; gap:6px; }
+    #ml-results-viz .dot { width:10px; height:10px; display:inline-block; }
+    #ml-results-viz .dot.a { background:var(--viz-series-1); }
+    #ml-results-viz .dot.b { background:var(--viz-series-2); }
+    #ml-results-viz .dot.c { background:var(--viz-series-3); }
+    #ml-results-viz .dot.d { background:var(--muted-foreground); opacity:.5; }
+    #ml-results-viz .note { margin-top:8px; color:var(--muted-foreground); }
+    #ml-results-viz .diag { display:grid; grid-template-columns:minmax(0,2fr) minmax(180px,1fr); gap:18px; align-items:center; }
+    #ml-results-viz .diag-values { display:grid; gap:8px; }
+    #ml-results-viz .diag-values div { display:flex; justify-content:space-between; gap:12px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+    #ml-results-viz .warn { color:var(--orange); font-weight:500; }
+    @media (max-width:620px) {
+      #ml-results-viz .coverage-grid { grid-template-columns:1fr; }
+      #ml-results-viz .diag { grid-template-columns:1fr; }
+      #ml-results-viz .seg { font-size:11px; }
+    }
+  </style>
+
+  <div class="title-row">
+    <h2>ML 보완 결과 한눈에 보기</h2>
+    <span class="subtitle text-small">별도 시험 링크 350개 · 마을버스 230개</span>
+  </div>
+
+  <section class="section" aria-labelledby="coverage-title">
+    <div class="section-head">
+      <h3 id="coverage-title">속도 예측구간 보정</h3>
+      <span class="text-small text-muted">중앙 예측 MAE 5.11 km/h · 보정 구간 평균 폭 26.93 km/h</span>
+    </div>
+    <div class="coverage-grid" role="img" aria-label="목표 포함률 90퍼센트, 원시 분위수 포함률 88.9퍼센트, conformal 보정 포함률 92.7퍼센트">
+      <div class="coverage-item">
+        <div class="coverage-label"><span>목표</span><strong class="tabular-nums">90.0%</strong></div>
+        <div class="track"><div class="fill target" style="width:90%"></div></div>
+      </div>
+      <div class="coverage-item">
+        <div class="coverage-label"><span>원시 분위수</span><strong class="tabular-nums">88.9%</strong></div>
+        <div class="track"><div class="fill" style="width:88.9%;opacity:.55"></div></div>
+      </div>
+      <div class="coverage-item">
+        <div class="coverage-label"><span>Conformal 보정</span><strong class="tabular-nums">92.7%</strong></div>
+        <div class="track"><div class="fill" style="width:92.7%"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="carbon-title">
+    <div class="section-head">
+      <h3 id="carbon-title">탄소 비교와 4분류 안정성</h3>
+      <span class="text-small text-muted">속도 불확실성을 에너지·탄소에 전달한 보수적 민감도 범위</span>
+    </div>
+    <div class="stack" role="img" aria-label="230개 노선 중 범위 전체에서 버스 우위 192개, 경계 33개, 승용차 우위 5개">
+      <div class="seg a" style="width:83.478%">192</div>
+      <div class="seg b" style="width:14.348%">33</div>
+      <div class="seg c" style="width:2.174%" data-tooltip="승용차 우위 5개"><span class="sr-only">5</span></div>
+    </div>
+    <div class="legend text-small">
+      <span><i class="dot a"></i>버스 우위 192</span>
+      <span><i class="dot b"></i>경계/불확실 33</span>
+      <span><i class="dot c"></i>승용차 우위 5</span>
+    </div>
+    <div class="stack" style="margin-top:16px" role="img" aria-label="기존 정책 분류가 유지되는 노선 100개, 바뀔 수 있는 노선 130개">
+      <div class="seg a" style="width:43.478%">분류 안정 100</div>
+      <div class="seg b" style="width:56.522%">경계 130</div>
+    </div>
+    <div class="note text-small">현재 4분류의 절반 이상은 탄소효율 중앙값 경계에 걸려 있어 확정 분류보다 ‘안정/경계’ 표시가 필요합니다.</div>
+  </section>
+
+  <section class="section" aria-labelledby="cluster-title">
+    <div class="section-head">
+      <h3 id="cluster-title">HDBSCAN 자연 군집 검증</h3>
+      <span class="warn">안정적인 자연 군집 없음</span>
+    </div>
+    <div class="diag">
+      <div>
+        <div class="stack" role="img" aria-label="군집에 포함된 노선 102개, 비정형 또는 경계 노선 128개">
+          <div class="seg d" style="width:44.348%">군집 102</div>
+          <div class="seg b" style="width:55.652%">비정형/경계 128</div>
+        </div>
+        <div class="note text-small">따라서 기존 4유형은 자연 군집이 아니라 정책 목적에 따라 설계한 분류로 해석해야 합니다.</div>
+      </div>
+      <div class="diag-values text-small">
+        <div><span>군집 수</span><strong class="tabular-nums">2</strong></div>
+        <div><span>실루엣</span><strong class="tabular-nums">0.138</strong></div>
+        <div><span>부분표본 안정성 ARI</span><strong class="tabular-nums">0.000</strong></div>
+        <div><span>정책 4분류와 ARI</span><strong class="tabular-nums">0.015</strong></div>
+      </div>
+    </div>
+  </section>
+</div>
