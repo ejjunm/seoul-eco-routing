@@ -7,8 +7,8 @@
   data/interim/seoul_link.shp, data/processed/seoul_link_dimension.csv
 
 처리
-  1. 노선명으로 유형 구분: `강남01`처럼 '한글+두 자리 숫자'는 마을버스, `동작A01`처럼
-     'A+숫자'를 포함하면 자율주행버스, 나머지는 일반(간선·지선 등)이다.
+  1. 노선 유형 구분(route_kinds.py): 승하차 데이터의 공식 분류 '서울마을버스'면 마을버스(강남06-1 같은
+     파생 노선, 서대문02대·02소 같은 분기 노선 포함), 이름에 'A+숫자'가 있으면 자율주행버스, 나머지는 일반.
   2. 노선 길이와 정류소 사이 거리는 실제 경로선에서 직접 잰다(정류소를 경로선에 앞으로만 투영).
   3. 실제 경로 맵매칭: 경로선을 RESAMPLE_M 간격 점으로 나누고, 각 점을 반경 MATCH_RADIUS_M 안에서
      진행 방향이 맞는 가장 가까운 링크에 붙인다. 표준노드링크의 골목길 일부는 한 방향 링크로만
@@ -42,6 +42,8 @@ from scipy.sparse.csgraph import dijkstra
 from scipy.spatial import cKDTree
 from shapely.geometry import LineString, Point
 
+from route_kinds import classify_route
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_TRAFFIC = PROJECT_ROOT / "data" / "raw" / "traffic"
 ROUTE_STOP_XLSX = RAW_TRAFFIC / "서울시버스노선별정류소정보(20260902).xlsx"
@@ -62,17 +64,6 @@ GAP_LIMIT_M = 800.0            # 끊긴 링크 사이를 메우는 최단경로 
 FILL_FACTOR, FILL_SLACK_M = 1.5, 30.0  # 메우는 경로 길이 ≤ 1.5 × 실제 경로상 간격 + 30m
 MATCH_QA_RANGE = (0.8, 1.1)    # 매칭 링크 길이 / 실제 경로 길이 허용 범위(표본 충분성)
 DETOUR_QA_LIMIT = 2.0          # (정류소 방식) 우회비 상한
-
-
-def classify_route(name: pd.Series) -> pd.Series:
-    return pd.Series(
-        np.select(
-            [name.str.contains(r"A\d", regex=True), name.str.match(r"^[가-힣]+\d{2}$")],
-            ["자율주행", "마을버스"],
-            "일반",
-        ),
-        index=name.index,
-    )
 
 
 def load_network() -> tuple[gpd.GeoDataFrame, pd.Index, np.ndarray]:

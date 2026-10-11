@@ -13,6 +13,7 @@
   1. 구간별 차 안 승객 수: 정류소 순번대로 '승차 - 하차'를 누적한다. 교통카드 하차 태그
      누락으로 하차가 승차보다 적게 잡히므로 노선 전체 하차 합을 승차 합에 맞춰 비례 보정한다.
      같은 정류소가 기점·종점으로 두 번 나오면 승차는 첫 등장, 하차는 마지막 등장에 둔다.
+     분기 노선(서대문02대·02소 등)은 승하차가 합쳐져 있어 route_kinds.py 규칙으로 정류장별로 나눈다.
   2. 승객·km = Σ(구간 승객 수 × 실제 경로선 기준 구간 길이). 7월 월합계를 31일로 나눠 하루값으로 쓴다.
   3. 하루 운행횟수: 노선·날짜별로 정류장 운행횟수의 중앙값을 취해 7/6~7/31(주말 포함, 승하차와
      같은 기준) 평균을 낸다.
@@ -55,6 +56,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from dataclasses import replace  # noqa: E402
 
 from energy import bus_fuel, hev_fuel, ice_fuel  # noqa: E402
+from route_kinds import branch_stop_weights, ridership_key  # noqa: E402
 from energy.ev_calibration import calibrate_two_point  # noqa: E402
 from energy.link_energy import VTCPEMParameters, calculate_link_energy  # noqa: E402
 
@@ -107,7 +109,12 @@ def load_profiles(route_names: set[str]) -> pd.DataFrame:
 
     seq["first"] = ~seq.duplicated(["ROUTE_ID", "NODE_ID"], keep="first")
     seq["last"] = ~seq.duplicated(["ROUTE_ID", "NODE_ID"], keep="last")
-    seq = seq.merge(ride, on=["노선명", "NODE_ID"], how="left").fillna({"board": 0.0, "alight": 0.0})
+    weights = branch_stop_weights(seq)
+    seq["ride_key"] = seq["노선명"].map(ridership_key)
+    seq = seq.merge(ride.rename(columns={"노선명": "ride_key"}), on=["ride_key", "NODE_ID"], how="left").fillna({"board": 0.0, "alight": 0.0})
+    share = np.array([weights.get((r, n), 1.0) for r, n in zip(seq["ROUTE_ID"], seq["NODE_ID"])])
+    seq["board"] *= share
+    seq["alight"] *= share
     seq["board"] = np.where(seq["first"], seq["board"], 0.0)
     seq["alight"] = np.where(seq["last"], seq["alight"], 0.0)
     totals = seq.groupby("ROUTE_ID")[["board", "alight"]].transform("sum")

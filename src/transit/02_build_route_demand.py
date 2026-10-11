@@ -15,6 +15,7 @@
   2. 고령 생활인구: 격자 연령별 칸은 소수 인원이 '*'로 가려져 있어 그대로 합하면
      과소 추정된다. 대신 격자 총인구에 같은 일자·시간 행정동의 65세 이상 비율을
      곱해 추정한다. 평일(7/7~7/20 중 월~금) 10~16시 평균을 낮 시간 대표값으로 쓴다.
+     분기 노선(서대문02대·02소 등)은 승하차가 합쳐져 있어 route_kinds.py 규칙으로 정류장별로 나눈다.
   3. 노선 단위로 정류소 반경 300m 격자(중복 제거)의 낮 시간 인구·고령 인구를 합산하고,
      지하철역 500m 밖이면서 일반버스 정류소 200m 안에도 없는 '대체수단 없는 정류소'
      비율과 그 정류소들의 승차 비중을 계산한다.
@@ -35,6 +36,8 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
+
+from route_kinds import branch_stop_weights, ridership_key
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_TRAFFIC = PROJECT_ROOT / "data" / "raw" / "traffic"
@@ -121,7 +124,10 @@ def main() -> None:
     print("[3/4] 노선 단위 수요 지표...")
     routes = pd.read_csv(TRANSIT / "routes.csv", dtype={"ROUTE_ID": str})
     stops = pd.read_csv(TRANSIT / "bus_stops.csv", dtype={"NODE_ID": str})
-    membership = pd.read_excel(ROUTE_STOP_XLSX, dtype={"ROUTE_ID": str, "NODE_ID": str})[["ROUTE_ID", "NODE_ID"]]
+    route_stops = pd.read_excel(ROUTE_STOP_XLSX, dtype={"ROUTE_ID": str, "NODE_ID": str})
+    route_stops["노선명"] = route_stops["노선명"].astype(str)
+    weights = branch_stop_weights(route_stops[route_stops["ROUTE_ID"].isin(routes["ROUTE_ID"])])
+    membership = route_stops[["ROUTE_ID", "NODE_ID"]]
     membership = membership[membership["ROUTE_ID"].isin(routes["ROUTE_ID"])].drop_duplicates()
 
     stop_xy = gpd.GeoSeries(gpd.points_from_xy(stops["X좌표"], stops["Y좌표"]), crs=4326).to_crs(5179)
@@ -135,7 +141,8 @@ def main() -> None:
         hits = cell_tree.query_ball_point(group[["sx", "sy"]].dropna().to_numpy(), STOP_CATCHMENT_M)
         cell_idx = sorted({i for hit in hits for i in hit})
         catchment = cells.iloc[cell_idx]
-        ride = ridership[(ridership["노선명"] == meta["노선명"]) & ridership["NODE_ID"].isin(group["NODE_ID"])]
+        ride = ridership[(ridership["노선명"] == ridership_key(meta["노선명"])) & ridership["NODE_ID"].isin(group["NODE_ID"])].copy()
+        ride["boardings_per_day"] *= [weights.get((route_id, n), 1.0) for n in ride["NODE_ID"]]
         ride = ride.merge(group[["NODE_ID", "no_alternative"]], on="NODE_ID", how="left")
         boardings = ride["boardings_per_day"].sum()
         rows.append({
