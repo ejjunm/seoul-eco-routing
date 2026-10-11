@@ -1,6 +1,6 @@
 """마을버스 분석 보고서용 그림(PNG)을 만든다. 01~10 산출물만 읽는다.
 
-출력: --out 폴더(기본 docs/figures/transit_report)에 fig01~fig12 PNG(보고서 그림 번호 순, 10·11은 노선 카드)
+출력: --out 폴더(기본 docs/figures/transit_report)에 PNG. fig00 한눈에 보기, fig01~fig07 본문 그림, figA1~figA5 부록 그림
 사용: python src/transit/report_figures.py [--out 폴더]
 """
 
@@ -150,13 +150,49 @@ TIER_ROWS = [
 ]
 
 
-def fig02_ai_tiers(out: Path) -> None:
+def tier_shares() -> tuple[pd.Series, pd.Series]:
+    """(마을버스 노선 길이 기준 등급 비중 %, 서울 전체 링크 수 기준 등급 비중 %)."""
     links = pd.read_csv(TRANSIT / "route_links.csv", dtype={"ROUTE_ID": str, "LINK_ID": str})
     links = links[links["kind"] == "마을버스"]
     tier = pd.read_parquet(TRANSIT / "link_speed_weekday_profile.parquet", columns=["LINK_ID", "tier"]).drop_duplicates("LINK_ID")
     merged = links.merge(tier, on="LINK_ID")
     route_share = merged.groupby("tier")["LENGTH"].sum() / merged["LENGTH"].sum() * 100
-    city_share = tier["tier"].value_counts(normalize=True) * 100
+    return route_share, tier["tier"].value_counts(normalize=True) * 100
+
+
+def fig00_key_numbers(t: dict, out: Path) -> None:
+    """한눈에 보기: 보고서 첫머리의 숫자 4개."""
+    c, o, r = t["carbon"], t["ops"], t["removal"]
+    h = t["hourly"]
+    low_share = h.loc[h["low_load"], "trips"].sum() / h["trips"].sum()
+    offpeak = o["van_offpeak_cut_vs_current_kg_per_day"].sum() / 1000
+    electric = (c["bus_co2_kg_per_day"].sum() - c["bus_co2_kg_per_day_all_electric"].sum()) / 1000
+    high = r.loc[r["class_id"].isin([1, 2]), "net_elderly_affected"].median()
+    low = r.loc[r["class_id"].isin([3, 4]), "net_elderly_affected"].median()
+    route_share, _ = tier_shares()
+    ai = 100 - route_share["A_lookup"]
+    tiles = [
+        (f"{int((c['bus_vs_car'] < 1).sum())}/{len(c)}",
+         f"노선에서 승객 1명당 탄소가\n승용차보다 적다({c['bus_g_per_pkm'].median():.0f}g 대 {c['car_g_per_pkm'].median():.0f}g)"),
+        (f"{low_share:.0%}", f"운행만 작은 전기차로 바꿔도 전기화\n효과의 절반 가까이(연 약 {round(offpeak * 365, -2):,.0f}톤)"),
+        (f"약 {high / low:.0f}배", "의존 높은 노선을 없앨 때 더 걷게 되는\n어르신 수(의존 낮은 노선 대비)"),
+        (f"{ai:.0f}%", "AI가 채운 골목길 구간(95%가 1차로).\nAI 오차를 감안해도 결론 유지"),
+    ]
+    fig, axes = plt.subplots(1, 4, figsize=(11, 2.0))
+    for ax, (number, label) in zip(axes, tiles):
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis("off")
+        ax.add_patch(FancyBboxPatch((0.02, 0.04), 0.96, 0.92, boxstyle="round,pad=0,rounding_size=0.06",
+                                    facecolor=PLANE, edgecolor="none", transform=ax.transAxes))
+        ax.text(0.09, 0.80, number, fontsize=25, fontweight="bold", color=INK, va="top", transform=ax.transAxes)
+        ax.text(0.09, 0.44, label, fontsize=8.8, color=INK2, va="top", linespacing=1.45, transform=ax.transAxes)
+    fig.subplots_adjust(wspace=0.06, left=0.01, right=0.99, top=0.98, bottom=0.02)
+    save(fig, out, "fig00_key_numbers.png")
+
+
+def fig02_ai_tiers(out: Path) -> None:
+    route_share, city_share = tier_shares()
     fig, ax = plt.subplots(figsize=(9, 3.4))
     ax.set_xlim(0, 100)
     ax.set_ylim(len(TIER_ROWS) - 0.4, -0.6)
@@ -196,7 +232,7 @@ def fig02_co2_per_km(t: dict, out: Path) -> None:
         ax.set_xlabel("1km 주행당 CO₂ (g, 230개 노선 중앙값)")
         ax.spines["left"].set_visible(False)
     fig.tight_layout(w_pad=3)
-    save(fig, out, "fig03_co2_per_km.png")
+    save(fig, out, "figA1_co2_per_km.png")
 
 
 def fig03_load_scatter(t: dict, out: Path) -> None:
@@ -229,7 +265,7 @@ def fig03_load_scatter(t: dict, out: Path) -> None:
     ax.set_xlabel("노선 평균 탑승 인원(명, 차 안에 평균 몇 명이 타고 있나)")
     ax.set_ylabel("승객 1명·1km당 CO₂ (g, 로그 눈금)")
     ax.legend(loc="upper right", bbox_to_anchor=(1.0, 0.86))
-    save(fig, out, "fig04_load_vs_carbon.png")
+    save(fig, out, "fig03_load_vs_carbon.png")
 
 
 def fig04_hourly(t: dict, out: Path) -> None:
@@ -257,7 +293,7 @@ def fig04_hourly(t: dict, out: Path) -> None:
         a2.text(hour, g.loc[hour, "low_share"] + 1.0, f"{g.loc[hour, 'low_share']:.0f}%", ha="center", fontsize=9, color=INK)
     a2.set_title("차 안 평균 인원이 3명 미만인 운행의 비중(%)")
     a2.set_xticks(range(6, 23, 2), [f"{x}시" for x in range(6, 23, 2)])
-    save(fig, out, "fig05_hourly_load.png")
+    save(fig, out, "fig04_hourly_load.png")
 
 
 def fig05_reduction(t: dict, out: Path) -> None:
@@ -275,17 +311,18 @@ def fig05_reduction(t: dict, out: Path) -> None:
             ("차 안 평균 3명 미만 시간대만 소형 전기차로", offpeak, f"전체 운행의 {low_share:.0%}만 바꿈 · 크기 효과만 {offpeak_size:.1f}톤", True),
             ("② 칸 노선 차량을 소형 전기차로", class2, f"{int(two['van_feasible'].sum())}개 노선 · 크기 효과만 {class2_size:.1f}톤", False)]
     fig, ax = plt.subplots(figsize=(9, 2.8))
-    ax.set_xlim(0, 22)
+    ax.set_xlim(0, 24)
     ax.set_ylim(len(rows) - 0.4, -0.6)
     clean_axes(ax, "x")
     for i, (label, value, note, highlight) in enumerate(rows):
         hbar(ax, i, value, 0.42, BLUE_DARK if highlight else BLUE)
-        ax.text(value + 0.25, i, f"하루 {value:.1f}톤", va="center", fontsize=9.5, color=INK, fontweight="bold")
+        ax.text(value + 0.25, i, f"하루 {value:.1f}톤 · 연 약 {round(value * 365, -2):,.0f}톤", va="center",
+                fontsize=9.5, color=INK, fontweight="bold")
         ax.text(value + 0.25, i + 0.3, note, va="center", fontsize=8.5, color=INK2)
     ax.set_yticks(range(len(rows)), [r[0] for r in rows])
     ax.spines["left"].set_visible(False)
-    ax.set_xlabel("하루 CO₂ 감축(톤, 지금 차량 구성 대비, 각 방법을 따로 했을 때)")
-    save(fig, out, "fig06_reduction_options.png")
+    ax.set_xlabel("하루 CO₂ 감축(톤, 지금 차량 구성 대비, 각 방법을 따로 했을 때. 연 = 하루 평균 × 365)")
+    save(fig, out, "fig05_reduction_options.png")
 
 
 def fig06_quadrant(t: dict, out: Path) -> None:
@@ -311,7 +348,7 @@ def fig06_quadrant(t: dict, out: Path) -> None:
     ax.set_xlabel("교통약자 의존도(고령 비율·고령 인구·대체수단 없는 승차 비중의 순위 평균, 0~1) →")
     ax.set_ylabel("승객 1명·1km당 CO₂ (g, 로그 눈금)\n↑ 손님에 비해 차가 큼")
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=4, handletextpad=0.3, columnspacing=1.2)
-    save(fig, out, "fig08_quadrant.png")
+    save(fig, out, "fig06_quadrant.png")
 
 
 def fig07_elderly_cars(t: dict, out: Path) -> None:
@@ -329,7 +366,7 @@ def fig07_elderly_cars(t: dict, out: Path) -> None:
     ax.set_xlabel("노선 정류장 300m 안 평일 낮 고령(65세 이상) 비율(%)")
     ax.set_ylabel("주민 1,000명당 자가용 승용차(대)")
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=2)
-    save(fig, out, "fig07_elderly_vs_cars.png")
+    save(fig, out, "figA2_elderly_vs_cars.png")
 
 
 def fig08_map(t: dict, out: Path) -> None:
@@ -348,7 +385,7 @@ def fig08_map(t: dict, out: Path) -> None:
         ax.set_title(f"{CLASS_NAMES[cid]}  {int((routes['class_id'] == cid).sum())}개 노선", fontsize=10.5)
         ax.set_axis_off()
     fig.tight_layout(h_pad=1.5, w_pad=1.0)
-    save(fig, out, "fig09_route_map.png")
+    save(fig, out, "figA3_route_map.png")
 
 
 def fig09_speed_check(t: dict, out: Path) -> None:
@@ -363,12 +400,12 @@ def fig09_speed_check(t: dict, out: Path) -> None:
     ax.set_xticks(range(7, 23, 2), [f"{x}시" for x in range(7, 23, 2)])
     ax.set_ylabel("속도(km/h)")
     ax.legend(loc="upper left", ncol=1)
-    save(fig, out, "fig12_speed_check.png")
+    save(fig, out, "figA5_speed_check.png")
 
 
 CARDS = [
-    ("서대문01", "fig10_card_seodaemun01.png", "언덕 위 어르신 노선: 작은 저상 전기차로 계속 달리게"),
-    ("관악04", "fig11_card_gwanak04.png", "붐비는 구간이 있는 어르신 노선: 차 크기는 그대로, 전기화와 지원 우선"),
+    ("서대문01", "fig07_card_seodaemun01.png", "언덕 위 어르신 노선: 작은 저상 전기차로 계속 달리게"),
+    ("관악04", "figA4_card_gwanak04.png", "붐비는 구간이 있는 어르신 노선: 차 크기는 그대로, 전기화와 지원 우선"),
 ]
 CELL_RAMP = LinearSegmentedColormap.from_list("ramp", ["#cde2fb", "#6da7ec", "#256abf", "#0d366b"])
 
@@ -455,6 +492,7 @@ def main() -> None:
     setup_style()
     tables = load_tables()
     print(f"그림 저장: {args.out}")
+    fig00_key_numbers(tables, args.out)
     fig01_flow(args.out)
     fig02_ai_tiers(args.out)
     fig02_co2_per_km(tables, args.out)
