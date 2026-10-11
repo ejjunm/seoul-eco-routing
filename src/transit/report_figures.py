@@ -100,43 +100,53 @@ def load_tables() -> dict[str, pd.DataFrame]:
 
 
 def fig01_flow(out: Path) -> None:
-    fig, ax = plt.subplots(figsize=(10, 4.6))
+    fig, ax = plt.subplots(figsize=(10, 5.4))
     ax.set_xlim(0, 100)
-    ax.set_ylim(0, 46)
+    ax.set_ylim(0, 54)
     ax.axis("off")
     columns = [
-        ("입력 데이터", 1, 22, [("버스 실제 경로", "서울시 버스 API"), ("승하차·운행횟수", "교통카드(7월), TOPIS"),
-                               ("생활인구·자동차 등록", "250m 격자, 행정동"), ("도로 속도·경사", "국가교통정보센터 5분 속도, DEM")]),
-        ("AI·물리 모델", 27, 22, [("AI 속도 추정", "관측 없는 도로(약 30%)의\n속도를 XGBoost로 채움"),
+        ("입력 데이터", 1, 22, [("버스 경로·정류장", "서울시 버스 API, 정류소 정보"), ("승하차·운행횟수", "교통카드(7월), TOPIS"),
+                               ("생활인구·자동차 등록", "250m 격자, 행정동"), ("도로 속도 + 예측용 자료", "강수·교통량·시설 등 13종")]),
+        ("AI·물리 모델", 27, 22, [("AI 속도 추정", "관측 없는 도로(29%)의\n속도를 XGBoost로 채움"),
                                 ("차량별 에너지 모델", "같은 길·속도·경사로\n버스 3종, 승용차 5종 계산")]),
-        ("분석", 53, 22, [("승객 1명·1km당 탄소", "버스 vs 승용차, 손익분기"), ("시간대별 탑승·증편", "언제 빈 차가 다니는가"),
-                         ("교통약자 의존도", "고령 인구, 대체수단,\n승용차 보유")]),
-        ("결과", 79, 20, [("네 칸 분류", "교통약자 의존도 ×\n탄소 효율"), ("정책 제안", "차 크기·운행 시간 맞춤")]),
+        ("분석", 53, 22, [("승객 1명·1km당 탄소", "버스 대 승용차,\n손익분기·증편"), ("시간대·차 크기별 감축", "언제, 어떤 차를 보낼까"),
+                         ("교통약자 의존도", "고령·대체수단·승용차,\n노선을 없앨 때 어르신 보행")]),
+        ("결과", 79, 20, [("네 칸 분류·노선 카드", "탄소 효율 × 의존도"), ("정책 제안", "저상 소형차·DRT,\n노선 평가 기준")]),
     ]
+    top, bottom = 48, 10
     for header, x, w, boxes in columns:
-        ax.text(x, 44, header, fontsize=10, fontweight="bold", color=MUTED, va="center")
+        ax.text(x, 52, header, fontsize=10, fontweight="bold", color=MUTED, va="center")
         n = len(boxes)
         gap = 2.2
-        h = (40 - gap * (n - 1)) / n
+        h = (top - bottom - gap * (n - 1)) / n
         for i, (title, sub) in enumerate(boxes):
-            y = 40 - (i + 1) * h - i * gap
+            y = top - (i + 1) * h - i * gap
             is_ai = title == "AI 속도 추정"
             ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0,rounding_size=1.2",
                                         facecolor=BLUE_PALE if is_ai else PLANE,
                                         edgecolor=BLUE if is_ai else "none", linewidth=1.2))
             ax.text(x + 1.4, y + h - 1.6, title, fontsize=10, fontweight="bold", color=INK, va="top")
             ax.text(x + 1.4, y + h - 4.6, sub, fontsize=8.5, color=INK2, va="top", linespacing=1.4)
+    mid = (top + bottom) / 2
     for x0, x1 in ((23.2, 26.6), (49.2, 52.6), (75.2, 78.6)):
-        ax.annotate("", xy=(x1, 20), xytext=(x0, 20), arrowprops=dict(arrowstyle="-|>", color=MUTED, lw=1.4))
+        ax.annotate("", xy=(x1, mid), xytext=(x0, mid), arrowprops=dict(arrowstyle="-|>", color=MUTED, lw=1.4))
+    # 검증: 모델·분석 단계 전체를 받친다
+    ax.add_patch(FancyBboxPatch((27, 0.5), 72, 7.5, boxstyle="round,pad=0,rounding_size=1.2",
+                                facecolor="white", edgecolor=BASE, linewidth=1.0))
+    ax.text(28.4, 4.25, "검증", fontsize=10, fontweight="bold", color=INK, va="center")
+    ax.text(34.5, 4.25, "AI 속도 정확도(도로 단위 분할) · 실제 마을버스 속도와 비교\n"
+                        "AI 오차·승용차 탑승 인원·버스 크기·정류장 거리를 바꿔도 결론 유지",
+            fontsize=8.5, color=INK2, va="center", linespacing=1.5)
     save(fig, out, "fig01_flow.png")
 
 
-# 검증 R²: docs/DATA_ANALYSIS_REPORT.md 3.2절(A, 시간 순서 분할)과 docs/figures/model/09_bc_groupkfold_r2.png
-# (B·C, 도로 단위 3-fold GroupKFold). 이 스크립트에서 다시 계산하지 않는다.
+# 검증 성능: A는 docs/DATA_ANALYSIS_REPORT.md 3.2절(시간 순서 분할). B·C는 src/models/02_build_model_bc.py
+# --mode validate(도로 단위 3-fold GroupKFold)를 2026-10-12에 다시 돌려 등급별로 집계한 값(전체 R² 0.7226 재현).
+# 이 스크립트에서 다시 계산하지 않는다.
 TIER_ROWS = [
-    ("A_lookup", "A  관측 이력: 과거 같은 시간대 평균\n검증 R² 0.92 (앞 11일 학습 → 뒤 3일 평가)"),
-    ("B_neighbor_model", "B  AI 추정: 이웃 도로 관측 있음\n검증 R² 0.74 (도로 단위로 나눈 평가)"),
-    ("C_static_model", "C  AI 추정: 이웃 관측도 없음\n검증 R² 0.32 (도로 단위로 나눈 평가)"),
+    ("A_lookup", "A  관측 이력: 과거 같은 시간대 평균\n검증 R² 0.92 · 평균 오차 2.3km/h (앞 11일 → 뒤 3일)"),
+    ("B_neighbor_model", "B  AI 추정: 이웃 도로 관측 있음\n검증 R² 0.72 · 평균 오차 4.6km/h (도로 단위 평가)"),
+    ("C_static_model", "C  AI 추정: 이웃 관측도 없음\n검증 R² 0.31 · 평균 오차 5.7km/h (도로 단위 평가)"),
 ]
 
 
