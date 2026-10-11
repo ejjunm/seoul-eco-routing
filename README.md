@@ -31,6 +31,70 @@ Model A/B/C는 도로의 품질 등급이 아니라, 그 링크에 대해 확보
 
 FastAPI 기반 대시보드(`app/`)에서 출발지·목적지를 입력해 세 경로를 직접 비교해 볼 수 있습니다. 연구 배경·데이터·방법론·전체 결과·한계는 **[데이터 분석 보고서](docs/DATA_ANALYSIS_REPORT.md)**에 정리되어 있습니다.
 
+## 마을버스 탄소·ML 확장 결과
+
+`feature/ml-uncertainty-hdbscan` 브랜치에는 기존 도로 링크 기반 친환경 경로 분석에 더해,
+서울 마을버스 노선의 탄소효율과 결과 불확실성을 점검하는 분석이 추가되어 있습니다.
+
+### 1. Quantile XGBoost + Split Conformal 속도 불확실성
+
+- 링크 단위로 학습·보정·시험 데이터를 분리하여 같은 링크가 시험 성능에 섞이지 않도록 했습니다.
+- XGBoost 분위수 모델로 속도의 5·50·95% 분위수를 예측하고 split conformal 방식으로 구간을 보정했습니다.
+- 별도 시험 링크 350개, 117,600개 관측치 기준 중앙예측 MAE는 **5.11 km/h**입니다.
+- 원시 분위수 구간 포함률은 **88.9%**, conformal 보정 후 포함률은 **92.7%**입니다.
+- 보정 구간의 평균 폭은 **26.93 km/h**입니다. 목표 포함률은 만족하지만 구간이 넓으므로 점추정값만으로 노선을 단정하지 않습니다.
+
+### 2. 노선별 탄소효율과 정책분류 민감도
+
+유효한 230개 마을버스 노선에 속도 불확실성의 영향을 전달하여 전기버스 에너지 소비와
+승용차 대비 승객·km당 탄소비율의 민감도 범위를 계산했습니다.
+
+| 결과 | 노선 수 | 해석 |
+| --- | ---: | --- |
+| 분석 유효 노선 | 230 | 적재량 QA를 통과한 노선 |
+| 전 구간에서 버스 우위 | **192** | 보수적 민감도 범위에서도 승용차보다 탄소효율이 좋음 |
+| 경계·불확실 | **33** | 속도·에너지 조건에 따라 결론이 달라질 수 있음 |
+| 전 구간에서 승용차 우위 | **5** | 운행·적재량 및 차량 조건을 추가 검토해야 함 |
+| 정책 4분류 안정 | **100** | 에너지 하한·상한에서도 현재 분류 유지 |
+| 정책 4분류 경계 | **130** | 에너지 조건에 따라 인접 분류로 이동 |
+
+주의: 여기서 노선별 하한·상한은 링크 단위 conformal 속도구간을 전파한 **보수적 민감도 범위**입니다.
+노선 단위 90% 확률구간으로 해석하면 안 됩니다.
+
+### 3. HDBSCAN 노선 유형 탐색
+
+- 10개 노선 특성을 표준화해 밀도기반 군집을 탐색했습니다.
+- 진단 설정에서 102개 노선만 군집에 포함되고 128개(55.7%)가 비정형/노이즈로 분류되었습니다.
+- silhouette는 **0.138**, bootstrap ARI는 **0.000**, 기존 정책분류와의 ARI는 **0.015**입니다.
+- 따라서 HDBSCAN 결과는 새로운 고정 노선 유형으로 사용하지 않고, 현재 변수만으로는 안정적인 자연 군집이
+  확인되지 않았다는 진단 결과로 사용합니다. 정책 의사결정에는 기존 4분류와 불확실성 검토를 우선합니다.
+
+### 4. 노선별 EDA와 발표자료
+
+발표에 바로 사용할 수 있도록 노선별 산점도, 불확실성 구간, 분류 이동, 시간대별 모델 진단,
+특성 상관관계, HDBSCAN 진단, 서울 공간분포 지도 및 우선 검토 노선표 등 **12개 PNG**를 만들었습니다.
+노선별 상세표와 요약표는 **7개 CSV**로 생성됩니다.
+
+- [발표용 EDA 안내와 권장 슬라이드 순서](docs/figures/transit_ml_eda/README.md)
+- [핵심 결과 한 장 요약](docs/figures/transit_ml_eda/01_executive_summary.png)
+- [탄소효율 × 교통약자 의존도](docs/figures/transit_ml_eda/02_carbon_dependence_quadrants.png)
+- [노선별 탄소 민감도 구간](docs/figures/transit_ml_eda/03_route_carbon_interval_forest.png)
+- [HDBSCAN 진단](docs/figures/transit_ml_eda/08_hdbscan_diagnostics.png)
+- [노선 공간분포 지도](docs/figures/transit_ml_eda/11_route_uncertainty_map.png)
+- [발표용 대표 노선표](docs/figures/transit_ml_eda/12_presentation_route_tables.png)
+- [ML 불확실성과 HDBSCAN 방법·해석](docs/ML_UNCERTAINTY_AND_HDBSCAN.md)
+
+관련 결과는 다음 순서로 다시 생성할 수 있습니다.
+
+```powershell
+python src/models/05_build_speed_uncertainty.py
+python src/transit/11_route_typology_hdbscan.py
+python src/transit/12_route_carbon_uncertainty.py
+python src/eda/06_transit_ml_eda.py
+```
+
+생성되는 상세 CSV는 `data/processed/transit_eda/`에 저장되며 대용량·중간 산출물 정책에 따라 Git에는 포함하지 않습니다.
+
 ## Quickstart
 
 원자료부터 전부 다시 만든다는 전제의 순서입니다. 대시보드와 라우팅은 각각 필요한 산출물이 먼저 만들어져 있어야 하므로, 아래 순서를 바꾸면 안 됩니다.
@@ -79,10 +143,11 @@ uvicorn app.server:app --reload
 │   └── static/     # Vanilla JS/HTML/CSS 프론트엔드
 ├── src/
 │   ├── pipeline/   # 01~05: 원자료 수집·정제(ETL) — 링크 추출, 속도 집계, 강수, 차원/팩트 테이블
-│   ├── models/     # 01~04: A lookup, B/C XGBoost 학습·검증, 전 링크 속도 예측
+│   ├── models/     # 01~05: A lookup, B/C XGBoost, 전 링크 속도 예측, quantile+conformal 불확실성
 │   ├── energy/     # 01~03: VT-CPEM 링크 에너지 계산
 │   ├── routing/    # engine.py(Dijkstra), 01(단일 OD), 02(다중 OD 시나리오), build_all_link_weather_snapshot.py(강수 스냅샷 보조)
-│   └── eda/        # 01~05: 관측/예측 EDA·하이브리드 구축(39개 그림)
+│   ├── transit/    # 마을버스 수요·탄소·정책분류, HDBSCAN, 노선 탄소 민감도
+│   └── eda/        # 01~06: 기존 EDA와 마을버스 발표용 노선 EDA
 ├── notebooks/      # 01~04: 모델 선택 과정의 연구 기록(현재 배포 코드는 src/models)
 ├── data/
 │   ├── README.md   # 데이터 사전 — 폴더·파일·컬럼·행 수·용도
@@ -90,7 +155,7 @@ uvicorn app.server:app --reload
 │   ├── interim/    # 파이프라인 중간 산출물
 │   └── processed/  # 차원/팩트 테이블, 모델 아티팩트, 전 링크 속도·에너지 산출물
 ├── docs/
-│   └── figures/    # observed_speed_eda/, observed_speed_energy_eda/, observed_vs_lookup/, speed_energy_eda/, model/, model_a/, network/
+│   └── figures/    # 기존 EDA와 transit_ml_eda/ 발표용 노선 시각화
 └── tests/          # 에너지식 단위 테스트
 ```
 
