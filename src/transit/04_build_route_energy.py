@@ -1,14 +1,9 @@
 """전기 중형버스(자율주행 마을버스 가정)의 노선별 운행 에너지와 배터리 여유를 계산한다.
 
 기준 차량: 현대 카운티 일렉트릭(배터리 128kWh, 마을버스 사양 73km/h 정속 338km, 복합 303km -
-제조사 공개값). 공차중량·전면적·공기저항계수는 공개 자료를 찾지 못해 다음처럼 둔다.
-  * 전면적 5.4m²(전폭 약 2.0m × 전고 약 2.7m 근사)
-  * 공기저항계수: '평지 73km/h 정속, 보조전력 1kW, 질량 6,000kg'에서 정속 주행거리 338km가
-    나오도록 역산한다.
-  * 가감속 부가 전력: 복합 주행거리 303km(도심 34.1km/h·고속 77.7km/h 정속 근사를 55:45로 연비
-    가중 조화평균)가 재현되도록 시간당 부가 전력을 역산해 보조전력에 더한다. 승용차(공인 도심·고속
-    연비 보정)와 같은 기준으로 정지·출발 소비를 반영하기 위함이다(src/energy/ev_calibration.py).
-  * 질량(6/7/8t)과 냉방 보조전력(2/5/8kW, 7월)은 시나리오로 둔다.
+제조사 공개값). 공기저항계수는 정속 주행거리로, 가감속 부가 전력은 복합 주행거리로 역산한다
+(src/energy/ev_calibration.py의 calibrate_county_electric). 질량(6/7/8t)과 냉방 보조전력(2/5/8kW,
+7월)은 시나리오로 둔다.
 에너지식은 src/energy/link_energy.py의 VT-CPEM 링크 근사식을 그대로 쓴다(정속, 가속도 0,
 회생제동 미적용). 회생제동을 빼면 소비량이 커지는 쪽이므로 배터리 용량 판단에는 안전한 상한이다.
 
@@ -30,70 +25,39 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
-from scipy.optimize import brentq  # noqa: E402
-
-from energy.ev_calibration import _terms, combined_wh_per_km  # noqa: E402
+from energy.ev_calibration import COUNTY_BATTERY_KWH, calibrate_county_electric  # noqa: E402
 from energy.link_energy import VTCPEMParameters, calculate_link_energy  # noqa: E402
+from route_data import load_route_link_hours  # noqa: E402
 
 TRANSIT = PROJECT_ROOT / "data" / "processed" / "transit"
-BATTERY_KWH = 128.0
 USABLE_SHARE = 0.8
-CERT_RANGE_KM = 338.0
-CERT_COMBINED_RANGE_KM = 303.0
-CERT_SPEED_KMH = 73.0
-CERT_MASS_KG = 6000.0
-CERT_AUX_W = 1000.0
-FRONTAL_AREA_M2 = 5.4
-OPERATING = range(8, 23)  # 시간코드 8~22 = 07~21시
 
 MASS_SCENARIOS_KG = {"6t": 6000.0, "7t": 7000.0, "8t": 8000.0}
 AUX_SCENARIOS_W = {"냉방약(2kW)": 2000.0, "냉방중(5kW)": 5000.0, "냉방강(8kW)": 8000.0}
 BASE_SCENARIO = ("7t", "냉방중(5kW)")
 
 
-def calibrate_county() -> tuple[float, float]:
-    """(공기저항계수, 가감속 부가 전력 W)를 공식 정속·복합 주행거리로 역산한다."""
-    base = VTCPEMParameters(mass_kg=CERT_MASS_KG, frontal_area_m2=FRONTAL_AREA_M2, auxiliary_power_w=CERT_AUX_W)
-    cd_term, _, const = _terms(base, CERT_SPEED_KMH)
-    cd = (BATTERY_KWH * 1000.0 / CERT_RANGE_KM - const) / cd_term
-    if cd <= 0:
-        raise SystemExit("보정 실패: 구름저항만으로 공식 전비를 넘습니다. 질량 가정을 확인하세요.")
-    base = replace(base, drag_coefficient=cd)
-    target = BATTERY_KWH * 1000.0 / CERT_COMBINED_RANGE_KM
-    extra_w = brentq(lambda x: combined_wh_per_km(base, x, 34.1, 77.7) - target, 0.0, 50000.0)
-    return cd, extra_w
-
-
 def main() -> None:
-    cd, extra_w = calibrate_county()
-    print(f"[1/3] 보정값 Cd = {cd:.3f} (전면적 {FRONTAL_AREA_M2}m²), 가감속 부가 전력 {extra_w / 1000:.2f}kW")
+    county, extra_w = calibrate_county_electric()
+    print(f"[1/3] 보정값 Cd = {county.drag_coefficient:.3f} (전면적 {county.frontal_area_m2}m²), "
+          f"가감속 부가 전력 {extra_w / 1000:.2f}kW")
 
-    route_links = pd.read_csv(TRANSIT / "route_links.csv", dtype={"ROUTE_ID": str, "LINK_ID": str})
-    dimension = pd.read_csv(PROJECT_ROOT / "data" / "processed" / "seoul_link_dimension.csv",
-                            usecols=["LINK_ID", "slope_pct"], dtype={"LINK_ID": str})
-    route_links = route_links.merge(dimension, on="LINK_ID", how="left")
-    route_links["slope_signed"] = np.where(route_links["reversed"], -1, 1) * route_links["slope_pct"].fillna(0)
-    profile = pd.read_parquet(TRANSIT / "link_speed_weekday_profile.parquet")
-    profile = profile[profile["시간코드"].isin(OPERATING)]
+    frame = load_route_link_hours()
     official_km = pd.read_csv(TRANSIT / "routes.csv", dtype={"ROUTE_ID": str}).set_index("ROUTE_ID")["length_km"]
 
     print("[2/3] 노선×시간×시나리오 에너지 계산...")
-    frame = route_links[["ROUTE_ID", "노선명", "kind", "link_order", "LINK_ID", "LENGTH", "slope_signed"]].merge(
-        profile[["LINK_ID", "시간코드", "speed_kmh"]], on="LINK_ID", how="left")
-    frame["speed_kmh"] = frame["speed_kmh"].fillna(frame.groupby("시간코드")["speed_kmh"].transform("median")).clip(lower=3)
-    energy_input = frame.rename(columns={"slope_signed": "slope_pct"})[["LINK_ID", "LENGTH", "speed_kmh", "slope_pct"]]
+    energy_input = frame[["LINK_ID", "LENGTH", "speed_kmh", "slope_pct"]]
     flat_input = energy_input.assign(slope_pct=0.0)
 
     rows = []
     for mass_name, mass in MASS_SCENARIOS_KG.items():
         for aux_name, aux in AUX_SCENARIOS_W.items():
-            params = replace(VTCPEMParameters(), mass_kg=mass, drag_coefficient=cd,
-                             frontal_area_m2=FRONTAL_AREA_M2, auxiliary_power_w=aux + extra_w)
+            params = replace(VTCPEMParameters(), mass_kg=mass, drag_coefficient=county.drag_coefficient,
+                             frontal_area_m2=county.frontal_area_m2, auxiliary_power_w=aux + extra_w)
             frame["wh"] = calculate_link_energy(energy_input, params)["energy_ev_wh"].to_numpy()
             frame["wh_flat"] = calculate_link_energy(flat_input, params)["energy_ev_wh"].to_numpy()
             per_hour = frame.groupby(["ROUTE_ID", "노선명", "kind", "시간코드"], as_index=False).agg(
@@ -108,7 +72,7 @@ def main() -> None:
             per_route["length_km"] = per_route["ROUTE_ID"].map(official_km)
             per_route["kwh_per_km"] = per_route["trip_kwh_mean"] / per_route["length_km"]
             per_route["slope_extra_share"] = per_route["trip_kwh_mean"] / per_route["flat_kwh_mean"] - 1
-            per_route["trips_per_charge"] = BATTERY_KWH * USABLE_SHARE / per_route["trip_kwh_max"]
+            per_route["trips_per_charge"] = COUNTY_BATTERY_KWH * USABLE_SHARE / per_route["trip_kwh_max"]
             per_route["km_per_charge"] = per_route["trips_per_charge"] * per_route["length_km"]
             per_route["mass_scenario"], per_route["aux_scenario"] = mass_name, aux_name
             rows.append(per_route)

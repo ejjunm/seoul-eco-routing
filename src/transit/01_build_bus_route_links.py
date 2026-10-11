@@ -40,17 +40,16 @@ import shapely
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 from scipy.spatial import cKDTree
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString
 
+from road_network import load_network
+from route_data import load_route_stops
 from route_kinds import classify_route
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_TRAFFIC = PROJECT_ROOT / "data" / "raw" / "traffic"
-ROUTE_STOP_XLSX = RAW_TRAFFIC / "서울시버스노선별정류소정보(20260902).xlsx"
 ROUTE_PATH_CSV = RAW_TRAFFIC / "bus_route_path" / "route_paths.csv"
 STATION_CSV = RAW_TRAFFIC / "서울시 역사마스터 정보.csv"
-LINK_SHP = PROJECT_ROOT / "data" / "interim" / "seoul_link.shp"
-DIMENSION_CSV = PROJECT_ROOT / "data" / "processed" / "seoul_link_dimension.csv"
 OUT_DIR = PROJECT_ROOT / "data" / "processed" / "transit"
 
 REVERSE_PENALTY = 1.5          # 최단경로에서 역방향 통과 비용 배수
@@ -64,24 +63,6 @@ GAP_LIMIT_M = 800.0            # 끊긴 링크 사이를 메우는 최단경로 
 FILL_FACTOR, FILL_SLACK_M = 1.5, 30.0  # 메우는 경로 길이 ≤ 1.5 × 실제 경로상 간격 + 30m
 MATCH_QA_RANGE = (0.8, 1.1)    # 매칭 링크 길이 / 실제 경로 길이 허용 범위(표본 충분성)
 DETOUR_QA_LIMIT = 2.0          # (정류소 방식) 우회비 상한
-
-
-def load_network() -> tuple[gpd.GeoDataFrame, pd.Index, np.ndarray]:
-    links = gpd.read_file(LINK_SHP)[["LINK_ID", "geometry"]]
-    links["LINK_ID"] = links["LINK_ID"].astype(str)
-    dimension = pd.read_csv(
-        DIMENSION_CSV, usecols=["LINK_ID", "F_NODE", "T_NODE", "LENGTH"],
-        dtype={"LINK_ID": str, "F_NODE": str, "T_NODE": str},
-    )
-    links = links.merge(dimension, on="LINK_ID", how="inner").reset_index(drop=True)
-    nodes = pd.Index(pd.unique(pd.concat([links["F_NODE"], links["T_NODE"]])))
-    coords: dict[str, np.ndarray] = {}
-    for f_node, t_node, geom in zip(links["F_NODE"], links["T_NODE"], links.geometry):
-        xy = np.asarray(geom.coords)
-        coords.setdefault(f_node, xy[0])
-        coords.setdefault(t_node, xy[-1])
-    node_xy = np.vstack([coords[node] for node in nodes])
-    return links, nodes, node_xy
 
 
 def build_graph(links: gpd.GeoDataFrame, nodes: pd.Index) -> tuple[csr_matrix, dict[tuple[int, int], tuple[int, bool]]]:
@@ -108,54 +89,57 @@ def shortest_links(graph, lookup, u: int, v: int, limit: float = np.inf) -> list
     return segment[::-1]
 
 
-def resample(line: LineString) -> tuple[list[Point], list[np.ndarray]]:
+def unit_vectors(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """점 배열 a→b 방향 단위벡터(길이 0이면 0벡터)."""
+    vec = shapely.get_coordinates(b) - shapely.get_coordinates(a)
+    norm = np.sqrt((vec * vec).sum(axis=1, keepdims=True))
+    return np.divide(vec, norm, out=np.zeros_like(vec), where=norm > 0)
+
+
+def resample(line: LineString) -> tuple[np.ndarray, np.ndarray]:
+    """경로선을 RESAMPLE_M 간격 점으로 나누고, 각 점의 진행 방향(앞뒤 RESAMPLE_M/2 구간)을 구한다."""
     distances = np.arange(0.0, line.length, RESAMPLE_M)
-    points = [line.interpolate(d) for d in distances]
-    headings = []
-    for d in distances:
-        a = line.interpolate(max(d - RESAMPLE_M / 2, 0.0))
-        b = line.interpolate(min(d + RESAMPLE_M / 2, line.length))
-        vec = np.array([b.x - a.x, b.y - a.y])
-        norm = np.linalg.norm(vec)
-        headings.append(vec / norm if norm > 0 else vec)
+    points = shapely.line_interpolate_point(line, distances)
+    headings = unit_vectors(shapely.line_interpolate_point(line, np.maximum(distances - RESAMPLE_M / 2, 0.0)),
+                            shapely.line_interpolate_point(line, np.minimum(distances + RESAMPLE_M / 2, line.length)))
     return points, headings
 
 
-def link_direction(geom: LineString, point: Point) -> np.ndarray:
-    d = geom.project(point)
-    a = geom.interpolate(max(d - 5.0, 0.0))
-    b = geom.interpolate(min(d + 5.0, geom.length))
-    vec = np.array([b.x - a.x, b.y - a.y])
-    norm = np.linalg.norm(vec)
-    return vec / norm if norm > 0 else vec
-
-
 def match_path(line: LineString, geoms: np.ndarray, tree: shapely.STRtree) -> list[tuple[int, bool, float, float]]:
-    """경로선 → (링크 인덱스, 역방향 여부, 경로상 처음·마지막 매칭 위치[m]) 열. 연속 중복은 하나로 합친다."""
+    """경로선 → (링크 인덱스, 역방향 여부, 경로상 처음·마지막 매칭 위치[m]) 열. 연속 중복은 하나로 합친다.
+
+    후보 링크의 거리·방향은 모든 (점, 후보) 쌍에 대해 한 번에 계산하고, 직전 링크 유지 규칙처럼
+    앞 점의 결과에 따라 달라지는 선택만 점 순서대로 처리한다.
+    """
     points, headings = resample(line)
+    point_idx, link_idx = tree.query(points, predicate="dwithin", distance=MATCH_RADIUS_M)
+    order = np.argsort(point_idx, kind="stable")  # 점 순서로 묶되 점 안의 후보 순서는 그대로 둔다
+    point_idx, link_idx = point_idx[order], link_idx[order]
+    cand, at = geoms[link_idx], points[point_idx]
+    # 후보 링크 위 가장 가까운 지점의 앞뒤 5m로 링크 방향을 잡는다.
+    along = shapely.line_locate_point(cand, at)
+    link_dir = unit_vectors(shapely.line_interpolate_point(cand, np.maximum(along - 5.0, 0.0)),
+                            shapely.line_interpolate_point(cand, np.minimum(along + 5.0, shapely.length(cand))))
+    cos = (headings[point_idx] * link_dir).sum(axis=1)
+    forward, backward = cos >= ALIGN_COS, cos <= -ALIGN_COS
+    keep = forward | backward
+    point_idx, link_idx, rev = point_idx[keep], link_idx[keep], backward[keep]
+    score = shapely.distance(cand[keep], at[keep]) + np.where(rev, REVERSE_EXTRA_M, 0.0)
+    bounds = np.searchsorted(point_idx, np.arange(len(points) + 1))
+
     matched: list[list] = []
-    for k, (point, heading) in enumerate(zip(points, headings)):
-        position = k * RESAMPLE_M
-        best, best_score = None, np.inf
-        stay = None
-        for idx in tree.query(point, predicate="dwithin", distance=MATCH_RADIUS_M):
-            geom = geoms[idx]
-            cos = float(np.dot(heading, link_direction(geom, point)))
-            if cos >= ALIGN_COS:
-                rev, score = False, geom.distance(point)
-            elif cos <= -ALIGN_COS:
-                rev, score = True, geom.distance(point) + REVERSE_EXTRA_M
-            else:
-                continue
-            if matched and tuple(matched[-1][:2]) == (idx, rev):
-                stay = (score, (idx, rev))
-            if score < best_score:
-                best, best_score = (idx, rev), score
-        if stay is not None and stay[0] <= best_score + STAY_TOLERANCE_M:
-            best = stay[1]
-        if best is None:
+    for k in range(len(points)):
+        lo, hi = bounds[k], bounds[k + 1]
+        if lo == hi:
             continue
-        if matched and tuple(matched[-1][:2]) == best:
+        j = lo + int(np.argmin(score[lo:hi]))  # 동점이면 먼저 나온 후보
+        best, best_score = (int(link_idx[j]), bool(rev[j])), score[j]
+        if matched:
+            same = (link_idx[lo:hi] == matched[-1][0]) & (rev[lo:hi] == matched[-1][1])
+            if same.any() and score[lo:hi][same][-1] <= best_score + STAY_TOLERANCE_M:
+                best = (matched[-1][0], matched[-1][1])
+        position = k * RESAMPLE_M
+        if matched and (matched[-1][0], matched[-1][1]) == best:
             matched[-1][3] = position
         else:
             matched.append([best[0], best[1], position, position])
@@ -197,16 +181,17 @@ def stop_positions(line: LineString, stop_xy: np.ndarray) -> np.ndarray:
     동적 계획법으로 찾는다.
     """
     distances = np.arange(0.0, line.length + RESAMPLE_M / 2, RESAMPLE_M / 2)
-    samples = np.array([[pt.x, pt.y] for pt in (line.interpolate(d) for d in distances)])
+    samples = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
     dist = np.hypot(samples[None, :, 0] - stop_xy[:, 0:1], samples[None, :, 1] - stop_xy[:, 1:2])
     cost = dist[0].copy()
     back = np.zeros(dist.shape, dtype=np.int64)
+    index = np.arange(len(cost))
     for k in range(1, len(stop_xy)):
+        # back[k][j] = j 이하에서 cost가 가장 작은 위치(동점이면 뒤쪽). 누적 최소가 새로 갱신되는 위치를
+        # 앞에서부터 이어 붙이면 된다.
         best_prev = np.minimum.accumulate(cost)
-        argbest = np.zeros(len(cost), dtype=np.int64)
-        for j in range(1, len(cost)):
-            argbest[j] = j if cost[j] <= best_prev[j - 1] else argbest[j - 1]
-        back[k] = argbest
+        is_new = cost <= np.r_[np.inf, best_prev[:-1]]
+        back[k] = np.maximum.accumulate(np.where(is_new, index, 0))
         cost = dist[k] + best_prev
     j = int(np.argmin(cost))
     positions = [j]
@@ -228,8 +213,7 @@ def main() -> None:
     ti = nodes.get_indexer(links["T_NODE"])
 
     print("[2/5] 정류소·지하철역·실제 경로 로드...")
-    route_stops = pd.read_excel(ROUTE_STOP_XLSX, dtype={"ROUTE_ID": str, "NODE_ID": str, "ARS_ID": str})
-    route_stops["노선명"] = route_stops["노선명"].astype(str)
+    route_stops = load_route_stops()
     route_stops["kind"] = classify_route(route_stops["노선명"])
     stop_points = gpd.GeoDataFrame(
         route_stops, geometry=gpd.points_from_xy(route_stops["X좌표"], route_stops["Y좌표"]), crs=4326
@@ -277,6 +261,7 @@ def main() -> None:
     print("[4/5] 마을버스·자율주행 노선 매칭...")
     target = route_stops[route_stops["kind"] != "일반"].sort_values(["ROUTE_ID", "순번"])
     lengths = links["LENGTH"].to_numpy()
+    link_ids = links["LINK_ID"].to_numpy()
     link_rows: list[dict] = []
     route_rows: list[dict] = []
     segment_rows: list[dict] = []
@@ -318,8 +303,8 @@ def main() -> None:
 
         route_links = [{
             "ROUTE_ID": route_id, "노선명": name, "kind": kind, "link_order": i + 1,
-            "from_stop_order": int(stop_order[i]), "LINK_ID": links.at[idx, "LINK_ID"],
-            "LENGTH": links.at[idx, "LENGTH"], "reversed": bool(rev),
+            "from_stop_order": int(stop_order[i]), "LINK_ID": link_ids[idx],
+            "LENGTH": lengths[idx], "reversed": bool(rev),
         } for i, (idx, rev) in enumerate(chain)]
         link_rows.extend(route_links)
         matched_m = sum(r["LENGTH"] for r in route_links)

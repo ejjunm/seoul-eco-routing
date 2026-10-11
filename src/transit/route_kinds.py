@@ -14,15 +14,12 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RAW_TRAFFIC = PROJECT_ROOT / "data" / "raw" / "traffic"
-RIDERSHIP_CSV = RAW_TRAFFIC / "2026년_버스노선별_정류장별_시간대별_승하차_인원_정보(07월).csv"
-TRIP_DIR = RAW_TRAFFIC / "bus_trips"
+from route_data import RIDERSHIP_CSV, load_trip_counts
+
 VILLAGE_TYPE = "서울마을버스"
 BRANCH_SUFFIXES = ("대", "소")
 
@@ -62,17 +59,11 @@ def branch_stop_weights(route_stops: pd.DataFrame) -> pd.Series:
     shared = frame.groupby("key")["ROUTE_ID"].transform("nunique") > 1
     frame["weight"] = 1.0
     if shared.any():
-        ids = set(frame.loc[shared, "ROUTE_ID"])
-        parts = [
-            t[t["노선_ID"].isin(ids)]
-            for t in (pd.read_csv(p, encoding="cp949", usecols=["노선_ID", "정류장_ID", "버스운행횟수"], dtype=str)
-                      for p in sorted(TRIP_DIR.glob("tpss_sta_route_hturn_*.csv")))
-        ]
-        trips = pd.concat(parts) if parts else pd.DataFrame(columns=["노선_ID", "정류장_ID", "버스운행횟수"])
-        trips["버스운행횟수"] = pd.to_numeric(trips["버스운행횟수"], errors="coerce")
-        stop_trips = trips.groupby(["노선_ID", "정류장_ID"])["버스운행횟수"].mean()
-        sub = frame.loc[shared].copy()
-        sub["trips"] = [stop_trips.get((r, n), np.nan) for r, n in zip(sub["ROUTE_ID"], sub["NODE_ID"])]
+        trips = load_trip_counts()
+        trips = trips[trips["노선_ID"].isin(set(frame.loc[shared, "ROUTE_ID"]))]
+        stop_trips = (trips.groupby(["노선_ID", "정류장_ID"])["버스운행횟수"].mean()
+                      .rename("trips").rename_axis(["ROUTE_ID", "NODE_ID"]))
+        sub = frame.loc[shared].join(stop_trips, on=["ROUTE_ID", "NODE_ID"])
         group_sum = sub.groupby(["key", "NODE_ID"])["trips"].transform("sum")
         group_n = sub.groupby(["key", "NODE_ID"])["ROUTE_ID"].transform("nunique")
         sub["weight"] = np.where(group_sum > 0, sub["trips"].fillna(0) / group_sum, 1.0 / group_n)

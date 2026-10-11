@@ -56,34 +56,33 @@ FAST_MIXED_KMH = 40.0
 SLOPE_CLIP = 12.0
 
 
-def build_weekday_profile() -> pd.DataFrame:
-    if PROFILE_PATH.exists():
-        return pd.read_parquet(PROFILE_PATH)
+def build_weekday_profile(path: Path = PROFILE_PATH) -> pd.DataFrame:
+    if path.exists():
+        return pd.read_parquet(path)
     pattern = re.compile(r"all_link_speed_prediction_(\d{12})\.csv$")
-    sums: pd.DataFrame | None = None
-    counts: pd.Series | None = None
+    files = [f for f in sorted(PROCESSED.glob("all_link_speed_prediction_*.csv"))
+             if (m := pattern.search(f.name)) and pd.Timestamp(m.group(1)[:8]).dayofweek < 5]
+    if not files:
+        raise SystemExit("평일 예측 속도 파일이 없습니다. 먼저 src/models/04_batch_predict_all_link_speed.py를 실행하세요.")
+    # 파일 하나가 한 시각(전 링크)이므로 시간코드별로 링크 속도 합과 파일 수를 누적한다.
+    sums: dict[int, pd.Series] = {}
+    counts: dict[int, pd.Series] = {}
     tiers: pd.Series | None = None
-    files = sorted(p for p in PROCESSED.glob("all_link_speed_prediction_*.csv") if pattern.search(p.name))
-    used = 0
-    for path in files:
-        tm = pattern.search(path.name).group(1)
-        if pd.Timestamp(tm[:8]).dayofweek >= 5:
-            continue
-        frame = pd.read_csv(path, usecols=["LINK_ID", "시간코드", "speed_kmh", "tier"], dtype={"LINK_ID": str})
-        key = frame.set_index(["LINK_ID", "시간코드"])["speed_kmh"]
-        sums = key if sums is None else sums.add(key, fill_value=0)
-        ones = pd.Series(1, index=key.index)
-        counts = ones if counts is None else counts.add(ones, fill_value=0)
+    for f in files:
+        frame = pd.read_csv(f, usecols=["LINK_ID", "시간코드", "speed_kmh", "tier"], dtype={"LINK_ID": str})
         if tiers is None:
             tiers = frame.drop_duplicates("LINK_ID").set_index("LINK_ID")["tier"]
-        used += 1
-    if sums is None:
-        raise SystemExit("평일 예측 속도 파일이 없습니다. 먼저 src/models/04_batch_predict_all_link_speed.py를 실행하세요.")
-    profile = (sums / counts).rename("speed_kmh").reset_index()
-    profile["시간코드"] = profile["시간코드"].astype(int)
+        for code, part in frame.groupby("시간코드"):
+            speed = part.set_index("LINK_ID")["speed_kmh"]
+            ones = pd.Series(1.0, index=speed.index)
+            code = int(code)
+            sums[code] = speed if code not in sums else sums[code].add(speed, fill_value=0)
+            counts[code] = ones if code not in counts else counts[code].add(ones, fill_value=0)
+    profile = (pd.concat({code: sums[code] / counts[code] for code in sorted(sums)}, names=["시간코드", "LINK_ID"])
+               .rename("speed_kmh").reset_index()[["LINK_ID", "시간코드", "speed_kmh"]])
     profile["tier"] = profile["LINK_ID"].map(tiers)
-    profile.to_parquet(PROFILE_PATH, index=False)
-    print(f"  평일 예측 파일 {used}개로 프로필 생성")
+    profile.to_parquet(path, index=False)
+    print(f"  평일 예측 파일 {len(files)}개로 프로필 생성")
     return profile
 
 

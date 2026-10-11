@@ -7,7 +7,7 @@
   data/raw/traffic/서울시버스노선별정류소정보(20260902).xlsx   (정류소 순번)
   data/raw/traffic/2026년_버스노선별_정류장별_시간대별_승하차_인원_정보(07월).csv
   data/raw/traffic/bus_trips/tpss_sta_route_hturn_2026.07.*.csv   (서울 열린데이터광장 OA-21220,
-      TOPIS 원천 노선별·정류장별 일별 버스 운행횟수)
+      TOPIS 원천 노선별·정류장별 일별 버스 운행횟수, route_data.py가 캐시)
 
 처리
   1. 구간별 차 안 승객 수: 정류소 순번대로 '승차 - 하차'를 누적한다. 교통카드 하차 태그
@@ -40,7 +40,7 @@
 출력
   data/processed/transit/route_carbon_breakeven.csv
 
-사용: python src/transit/06_build_route_carbon_breakeven.py
+사용: python src/transit/05_build_route_carbon_breakeven.py
 """
 
 from __future__ import annotations
@@ -56,28 +56,23 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from dataclasses import replace  # noqa: E402
 
 from energy import bus_fuel, hev_fuel, ice_fuel  # noqa: E402
-from route_kinds import branch_stop_weights, ridership_key  # noqa: E402
-from energy.ev_calibration import calibrate_two_point  # noqa: E402
+from energy.ev_calibration import CITY_KMH, HWY_KMH, calibrate_two_point  # noqa: E402
 from energy.link_energy import VTCPEMParameters, calculate_link_energy  # noqa: E402
+from route_data import load_route_link_hours, load_route_stops, load_stop_ridership, route_trips_per_day  # noqa: E402
+from route_kinds import branch_stop_weights, ridership_key  # noqa: E402
 
 RAW_TRAFFIC = PROJECT_ROOT / "data" / "raw" / "traffic"
 TRANSIT = PROJECT_ROOT / "data" / "processed" / "transit"
-ROUTE_STOP_XLSX = RAW_TRAFFIC / "서울시버스노선별정류소정보(20260902).xlsx"
-RIDERSHIP_CSV = RAW_TRAFFIC / "2026년_버스노선별_정류장별_시간대별_승하차_인원_정보(07월).csv"
-TRIP_DIR = RAW_TRAFFIC / "bus_trips"
 
-DAYS_IN_MONTH = 31
-OPERATING = range(8, 23)          # 시간코드 8~22 = 07~21시
 CAR_OCCUPANCY = 1.2
 GRID_KG_CO2_PER_KWH = 0.4173
-TRIP_WINDOW = ("2026-07-06", "2026-07-31")
 MIN_AVG_TRIP_KM = 0.5
 REGISTRATION_CSV = RAW_TRAFFIC / "vehicle_registration" / "seoul_fuel_registration_202607.csv"
 BUS_FLEET = {"전기": 397, "CNG": 885, "경유": 344}          # 2026.1 서울 마을버스 연료별 대수
 # 아이오닉5 롱레인지 2WD(19인치): 공차중량 2,015kg + 운전자, 공인 도심 5.8·고속 4.6km/kWh(제조사 공개 제원)
 IONIQ5 = replace(VTCPEMParameters(), mass_kg=2015.0 + 75.0, drag_coefficient=0.288,
                  frontal_area_m2=1.890 * 1.605 * 0.85)
-IONIQ5_LABEL = [(34.1, 1000.0 / 5.8), (77.7, 1000.0 / 4.6)]
+IONIQ5_LABEL = [(CITY_KMH, 1000.0 / 5.8), (HWY_KMH, 1000.0 / 4.6)]
 
 
 def car_fleet_shares() -> dict[str, float]:
@@ -97,24 +92,19 @@ def car_fleet_shares() -> dict[str, float]:
 
 def load_profiles(route_names: set[str]) -> pd.DataFrame:
     """노선×정류소 순번별 하루 승차·하차(하차는 노선 단위로 승차 합에 맞춰 보정)."""
-    seq = pd.read_excel(ROUTE_STOP_XLSX, dtype={"ROUTE_ID": str, "NODE_ID": str})
-    seq["노선명"] = seq["노선명"].astype(str)
+    seq = load_route_stops()
     seq = seq[seq["노선명"].isin(route_names)].sort_values(["ROUTE_ID", "순번"])
-    ride = pd.read_csv(RIDERSHIP_CSV, encoding="cp949", low_memory=False, dtype={"노선번호": str, "표준버스정류장ID": str})
-    board = ride[[c for c in ride.columns if c.endswith("승차총승객수")]].sum(axis=1)
-    alight = ride[[c for c in ride.columns if c.endswith("하차총승객수")]].sum(axis=1)
-    ride = pd.DataFrame({"노선명": ride["노선번호"], "NODE_ID": ride["표준버스정류장ID"],
-                         "board": board / DAYS_IN_MONTH, "alight": alight / DAYS_IN_MONTH})
-    ride = ride.groupby(["노선명", "NODE_ID"], as_index=False).sum()
+    ride = load_stop_ridership()
+    ride = pd.DataFrame({"ride_key": ride["ride_key"], "NODE_ID": ride["NODE_ID"],
+                         "board": ride.filter(like="board_").sum(axis=1), "alight": ride.filter(like="alight_").sum(axis=1)})
 
     seq["first"] = ~seq.duplicated(["ROUTE_ID", "NODE_ID"], keep="first")
     seq["last"] = ~seq.duplicated(["ROUTE_ID", "NODE_ID"], keep="last")
-    weights = branch_stop_weights(seq)
+    seq = seq.join(branch_stop_weights(seq).rename("share"), on=["ROUTE_ID", "NODE_ID"])
     seq["ride_key"] = seq["노선명"].map(ridership_key)
-    seq = seq.merge(ride.rename(columns={"노선명": "ride_key"}), on=["ride_key", "NODE_ID"], how="left").fillna({"board": 0.0, "alight": 0.0})
-    share = np.array([weights.get((r, n), 1.0) for r, n in zip(seq["ROUTE_ID"], seq["NODE_ID"])])
-    seq["board"] *= share
-    seq["alight"] *= share
+    seq = seq.merge(ride, on=["ride_key", "NODE_ID"], how="left").fillna({"board": 0.0, "alight": 0.0})
+    seq["board"] *= seq["share"]
+    seq["alight"] *= seq["share"]
     seq["board"] = np.where(seq["first"], seq["board"], 0.0)
     seq["alight"] = np.where(seq["last"], seq["alight"], 0.0)
     totals = seq.groupby("ROUTE_ID")[["board", "alight"]].transform("sum")
@@ -123,29 +113,13 @@ def load_profiles(route_names: set[str]) -> pd.DataFrame:
     return seq
 
 
-def load_daily_trips(route_ids: set[str]) -> pd.Series:
-    parts = []
-    for path in sorted(TRIP_DIR.glob("tpss_sta_route_hturn_*.csv")):
-        frame = pd.read_csv(path, encoding="cp949", usecols=["기준_날짜", "노선_ID", "버스운행횟수"],
-                            dtype={"기준_날짜": str, "노선_ID": str})
-        parts.append(frame[frame["노선_ID"].isin(route_ids)])
-    if not parts:
-        raise SystemExit(f"운행횟수 파일이 없습니다: {TRIP_DIR}")
-    trips = pd.concat(parts, ignore_index=True)
-    dates = pd.to_datetime(trips["기준_날짜"], format="%Y%m%d")
-    trips = trips[dates.between(*TRIP_WINDOW)]
-    per_day = trips.groupby(["노선_ID", "기준_날짜"])["버스운행횟수"].median()
-    return per_day.groupby("노선_ID").mean().rename("trips_per_day")
-
-
 def main() -> None:
-    route_links = pd.read_csv(TRANSIT / "route_links.csv", dtype={"ROUTE_ID": str, "LINK_ID": str})
-    route_links = route_links[route_links["kind"] == "마을버스"]
+    car = load_route_link_hours(kind="마을버스")
     bus = pd.read_csv(TRANSIT / "route_energy.csv", dtype={"ROUTE_ID": str})
     bus = bus[bus["is_base"] & (bus["kind"] == "마을버스")][["ROUTE_ID", "kwh_per_km", "length_km"]]
 
     print("[1/4] 구간별 승객 수와 승객·km...")
-    seq = load_profiles(set(route_links["노선명"]))
+    seq = load_profiles(set(car["노선명"]))
     # 01의 route_segments.csv: stop_order n = '순번 정렬 기준 n번째 정류소 → n+1번째' 구간(실제 경로선 길이).
     seq["stop_order"] = seq.groupby("ROUTE_ID").cumcount() + 1
     segments = pd.read_csv(TRANSIT / "route_segments.csv", dtype={"ROUTE_ID": str})
@@ -156,17 +130,9 @@ def main() -> None:
     pax["avg_trip_km"] = pax["pkm_per_day"] / pax["boardings_per_day"]
 
     print("[2/4] 노선별 하루 운행횟수(TOPIS)...")
-    trips = load_daily_trips(set(pax["ROUTE_ID"]))
+    trips = route_trips_per_day(set(pax["ROUTE_ID"]))
 
-    print("[3/4] 같은 길·같은 시간대 승용차(휘발유·전기) 1km 탄소...")
-    profile = pd.read_parquet(TRANSIT / "link_speed_weekday_profile.parquet")
-    profile = profile[profile["시간코드"].isin(OPERATING)]
-    dimension = pd.read_csv(PROJECT_ROOT / "data" / "processed" / "seoul_link_dimension.csv",
-                            usecols=["LINK_ID", "slope_pct"], dtype={"LINK_ID": str})
-    car = route_links.merge(dimension, on="LINK_ID", how="left")
-    car["slope_pct"] = np.where(car["reversed"], -1, 1) * car["slope_pct"].fillna(0)
-    car = car.merge(profile[["LINK_ID", "시간코드", "speed_kmh"]], on="LINK_ID", how="left")
-    car["speed_kmh"] = car["speed_kmh"].fillna(car.groupby("시간코드")["speed_kmh"].transform("median")).clip(lower=3)
+    print("[3/4] 같은 길·같은 시간대 승용차(연료별) 1km 탄소...")
     link_input = car[["LINK_ID", "LENGTH", "speed_kmh", "slope_pct"]]
     ioniq5, extra_w = calibrate_two_point(IONIQ5, IONIQ5_LABEL)
     ioniq5 = replace(ioniq5, auxiliary_power_w=ioniq5.auxiliary_power_w + extra_w)
