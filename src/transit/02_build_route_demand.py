@@ -117,7 +117,8 @@ def load_population(rebuild: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
     cached = GRID_CACHE.exists() and "dong" in pd.read_csv(GRID_CACHE, nrows=0).columns
     if rebuild or not cached or any(is_stale(c, raw) for c in (GRID_CACHE, NIGHT_CACHE)):
         if not raw:
-            raise SystemExit(f"생활인구 원자료가 없고 쓸 수 있는 캐시도 없습니다: {GRID_POP_DIR}, {DONG_POP_DIR}")
+            raise SystemExit(f"생활인구 원자료({GRID_POP_DIR.name}, {DONG_POP_DIR.name})가 없어 격자 인구를 만들 수 없습니다. "
+                             f"--rebuild를 빼거나, 대표 행정동(dong) 열이 있는 {GRID_CACHE.name}와 {NIGHT_CACHE.name}를 받으세요.")
         cells, night = build_population()
         cells.to_csv(GRID_CACHE, index=False, encoding="utf-8-sig")
         night.to_csv(NIGHT_CACHE, index=False, encoding="utf-8-sig")
