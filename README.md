@@ -83,6 +83,7 @@ FastAPI 기반 대시보드(`app/`)에서 출발지·목적지를 입력해 세 
 - [노선 공간분포 지도](docs/figures/transit_ml_eda/11_route_uncertainty_map.png)
 - [발표용 대표 노선표](docs/figures/transit_ml_eda/12_presentation_route_tables.png)
 - [ML 불확실성과 HDBSCAN 방법·해석](docs/ML_UNCERTAINTY_AND_HDBSCAN.md)
+- [기존 브랜치 대비 변경사항과 결과의 의미](docs/ML_UNCERTAINTY_CHANGE_GUIDE.md)
 
 관련 결과는 다음 순서로 다시 생성할 수 있습니다.
 
