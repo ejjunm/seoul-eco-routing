@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+import sys
 
 import geopandas as gpd
 import numpy as np
@@ -37,6 +38,8 @@ from scipy.spatial import cKDTree
 from road_network import elderly_mps, elderly_walk_graph, link_grade, load_network, nearest_source_cost
 from route_data import load_route_stops, load_stop_ridership
 from route_kinds import branch_stop_weights, ridership_key
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
+from src.transit.upgrade.access import summarize_access
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TRANSIT = PROJECT_ROOT / "data" / "processed" / "transit"
@@ -46,17 +49,9 @@ LONG_WALK_MIN = 10.0
 
 
 def summarize(base: np.ndarray, after: np.ndarray, elderly: np.ndarray, prefix: str) -> dict:
-    # 도로망과 이어지지 않은 격자(무한대)는 비교에서 뺀다.
-    ok = np.isfinite(base) & np.isfinite(after)
-    with np.errstate(invalid="ignore"):
-        added = np.where(ok, after - base, 0.0)
-    hit = added >= AFFECTED_MIN
-    affected = float(elderly[hit].sum())
-    return {
-        f"{prefix}_elderly_affected": affected,
-        f"{prefix}_added_min_mean": float(np.average(added[hit], weights=elderly[hit])) if affected > 0 else 0.0,
-        f"{prefix}_elderly_over_10min_new": float(elderly[ok & (base <= LONG_WALK_MIN) & (after > LONG_WALK_MIN)].sum()),
-    }
+    # Newly lost connectivity is an impact, not a zero-minute improvement.
+    # Mean additional minutes is restricted to finite affected cells.
+    return summarize_access(base,after,elderly,prefix,AFFECTED_MIN,LONG_WALK_MIN)
 
 
 def main() -> None:
@@ -118,7 +113,8 @@ def main() -> None:
             row.update(summarize(base_simple, after_simple, elderly, "simple"))
             with np.errstate(invalid="ignore"):
                 add_net, add_simple = after_net - base_net, after_simple - base_simple
-            changed = np.isfinite(add_net) & ((add_net >= AFFECTED_MIN) | (add_simple >= AFFECTED_MIN))
+            lost = np.isfinite(base_net) & ~np.isfinite(after_net)
+            changed = (np.isfinite(add_net) & ((add_net >= AFFECTED_MIN) | (add_simple >= AFFECTED_MIN))) | lost
             cell_rows.append(pd.DataFrame({"ROUTE_ID": route_id, "CELL_ID": cells.loc[changed, "CELL_ID"].to_numpy(),
                                            "elderly": elderly[changed], "added_min_net": add_net[changed],
                                            "added_min_simple": add_simple[changed],
@@ -126,7 +122,7 @@ def main() -> None:
         rows.append(row)
     out = pd.DataFrame(rows).fillna(0.0)
     out.to_csv(TRANSIT / "route_removal_access.csv", index=False, encoding="utf-8-sig")
-    pd.concat(cell_rows, ignore_index=True).to_csv(TRANSIT / "route_removal_cells.csv", index=False, encoding="utf-8-sig")
+    (pd.concat(cell_rows, ignore_index=True) if cell_rows else pd.DataFrame()).to_csv(TRANSIT / "route_removal_cells.csv", index=False, encoding="utf-8-sig")
 
     print(f"\n  노선 {len(out)}개 중 그 노선만 서는 정류장이 있는 노선 {int((out['n_exclusive_stops'] > 0).sum())}개")
     cols = ["n_exclusive_stops", "boardings_at_exclusive_stops", "net_elderly_affected", "net_added_min_mean",
