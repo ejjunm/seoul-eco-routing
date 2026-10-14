@@ -1,23 +1,17 @@
 """저장된 Model A/B/C 아티팩트로 특정 시각의 서울 전 링크 속도를 예측한다.
 
-기존 routing/13의 inline 재학습과 무관한 배포용 단계다. 이 스크립트는 이미
+재학습 없이 예측만 하는 배포용 단계다. 이 스크립트는 이미
 학습·저장된 아래 파일만 사용한다.
 
-* data/processed/model_a_lookup.parquet
-* data/processed/neighbor_speed_lookup.parquet
-* src/models/artifacts/model_nb.pkl
-* src/models/artifacts/model_stat.pkl
+* data/processed/model_a_lookup.parquet, neighbor_speed_lookup.parquet
+* src/models/artifacts/model_nb.pkl, model_stat.pkl
 
-출력은 ``data/processed/all_link_speed_prediction_{tm}.csv``이며, 서울 63,548개
-링크마다 ``speed_kmh``를 갖는다.
+교통량·생활인구처럼 미래 시각에 실측값이 없는 변수는 같은 시간대·평일/주말의 과거 평균을 쓴다.
 
-사용 예:
-    python src/models/03_predict_all_link_speed.py --tm 202607160800
-    python src/models/03_predict_all_link_speed.py --tm 202607160800 --precip-mm 0
-
-첫 번째 예시는 data/processed/seoul_all_link_weather_202607160800.csv의 링크별
-레이더 강수량을 사용한다. 두 번째 예시는 모든 링크에 동일한 시나리오 강수량을
-적용한다.
+출력: data/processed/all_link_speed_prediction_{tm}.csv(63,548개 링크의 speed_kmh, tier)
+사용:
+    python src/models/03_predict_all_link_speed.py --tm 202607160800                 # 레이더 강수(weather_snapshot.py 결과)
+    python src/models/03_predict_all_link_speed.py --tm 202607160800 --precip-mm 0   # 강수 시나리오
 """
 
 from __future__ import annotations
@@ -105,11 +99,11 @@ def load_weather(args: argparse.Namespace, link_ids: pd.Series) -> pd.DataFrame:
             raise SystemExit("--precip-mm은 0 이상이어야 합니다.")
         return pd.DataFrame({"LINK_ID": link_ids, "precip_mm": np.float32(args.precip_mm)})
 
-    path = args.weather_file or PROCESSED / f"seoul_all_link_weather_{args.tm}.csv"
+    path = args.weather_file or PROCESSED / "weather_snapshot" / f"weather_snapshot_{args.tm}.csv"
     if not path.exists():
         raise SystemExit(
             f"링크별 강수 파일이 없습니다: {path}\n"
-            "레이더 스냅샷을 만들거나, 강수 시나리오라면 --precip-mm 0처럼 지정하세요."
+            "python src/models/weather_snapshot.py --tm <시각>으로 레이더 스냅샷을 만들거나, 강수 시나리오라면 --precip-mm 0처럼 지정하세요."
         )
     weather = pd.read_csv(path, usecols=["LINK_ID", "precip_mm"], dtype={"LINK_ID": str}, encoding="utf-8-sig")
     weather["precip_mm"] = pd.to_numeric(weather["precip_mm"], errors="coerce")
@@ -206,6 +200,32 @@ def align_model_categories(frame: pd.DataFrame, artifact: dict) -> None:
         frame[name] = pd.Categorical(frame[name], categories=values.to_numpy(zero_copy_only=False))
 
 
+def output_columns(builder) -> list[str]:
+    return ["LINK_ID", "F_NODE", "T_NODE", "LENGTH", "ROAD_NAME", "MAX_SPD", "ROAD_RANK",
+            "slope_pct", "precip_mm", "시간코드", "is_weekend", builder.NEIGHBOR_COL,
+            "speed_kmh", "tier", "speed_source", "prediction_confidence"]
+
+
+def predict_speed(frame: pd.DataFrame, builder, nb_artifact: dict, stat_artifact: dict,
+                  nb_features: list[str], stat_features: list[str]) -> None:
+    """A 조회값이 있으면 A, 없고 이웃속도가 있으면 B, 둘 다 없으면 C로 속도를 채운다(frame에 열 추가).
+
+    예측속도는 3km/h와 링크 제한속도 사이로 제한한다.
+    """
+    is_a = frame["model_a_speed"].notna()
+    is_b = ~is_a & frame[builder.NEIGHBOR_COL].notna()
+    is_c = ~is_a & ~is_b
+    speed = pd.Series(np.nan, index=frame.index, dtype="float32")
+    speed.loc[is_a] = frame.loc[is_a, "model_a_speed"].to_numpy(dtype="float32")
+    speed.loc[is_b] = nb_artifact["model"].predict(frame.loc[is_b, nb_features])
+    speed.loc[is_c] = stat_artifact["model"].predict(frame.loc[is_c, stat_features])
+    max_speed = pd.to_numeric(frame["MAX_SPD"], errors="coerce").fillna(110).clip(lower=3)
+    frame["speed_kmh"] = speed.clip(lower=3).clip(upper=max_speed).round(3)
+    frame["tier"] = np.select([is_a, is_b], ["A_lookup", "B_neighbor_model"], default="C_static_model")
+    frame["speed_source"] = np.select([is_a, is_b], ["model_a_lookup", "model_nb"], default="model_stat")
+    frame["prediction_confidence"] = np.select([is_a, is_b], ["high", "medium"], default="low")
+
+
 def main() -> None:
     args = parse_args()
     tm = validate_tm(args.tm)
@@ -255,27 +275,12 @@ def main() -> None:
     align_model_categories(frame, stat_artifact)
 
     print("[3/4] B/C 모델 예측...")
-    is_a = frame["model_a_speed"].notna()
-    is_b = ~is_a & frame[builder.NEIGHBOR_COL].notna()
-    is_c = ~is_a & ~is_b
-    speed = pd.Series(np.nan, index=frame.index, dtype="float32")
-    speed.loc[is_a] = frame.loc[is_a, "model_a_speed"].to_numpy(dtype="float32")
-    speed.loc[is_b] = nb_artifact["model"].predict(frame.loc[is_b, nb_features])
-    speed.loc[is_c] = stat_artifact["model"].predict(frame.loc[is_c, stat_features])
-    max_speed = pd.to_numeric(frame["MAX_SPD"], errors="coerce").fillna(110).clip(lower=3)
-    frame["speed_kmh"] = speed.clip(lower=3).clip(upper=max_speed).round(3)
-    frame["tier"] = np.select([is_a, is_b], ["A_lookup", "B_neighbor_model"], default="C_static_model")
-    frame["speed_source"] = np.select(
-        [is_a, is_b], ["model_a_lookup", "model_nb"], default="model_stat"
-    )
-    frame["prediction_confidence"] = np.select([is_a, is_b], ["high", "medium"], default="low")
+    predict_speed(frame, builder, nb_artifact, stat_artifact, nb_features, stat_features)
 
     output = args.output or PROCESSED / f"all_link_speed_prediction_{args.tm}.csv"
     output.parent.mkdir(parents=True, exist_ok=True)
-    keep = ["LINK_ID", "F_NODE", "T_NODE", "LENGTH", "ROAD_NAME", "MAX_SPD", "ROAD_RANK",
-            "slope_pct", "precip_mm", "시간코드", "is_weekend", builder.NEIGHBOR_COL,
-            "speed_kmh", "tier", "speed_source", "prediction_confidence"]
-    frame[[col for col in keep if col in frame.columns]].to_csv(output, index=False, encoding="utf-8-sig")
+    keep = [col for col in output_columns(builder) if col in frame.columns]
+    frame[keep].to_csv(output, index=False, encoding="utf-8-sig")
 
     print(f"[4/4] 저장 완료: {output}")
     print(f"링크 수: {len(frame):,} | 속도 결측: {int(frame['speed_kmh'].isna().sum())}")
